@@ -1,0 +1,33 @@
+diff -rNau ./tests/test-run.c.orig ./tests/test-run.c
+--- ./tests/test-run.c.orig     2013-02-22 17:13:26.042938124 +0400
++++ ./tests/test-run.c  2013-02-22 17:58:35.826682428 +0400
+@@ -183,19 +183,23 @@
+     }
+ 
+ static int load_module(struct augeas *aug, struct test *test) {
+-    char *fname;
++    char *fname, *fpath;
+     int r;
+ 
+     if (test->module == NULL)
+         return 0;
+-
+-    if (asprintf(&fname, "%s/%s.aug", lensdir, test->module) == -1)
+-        fail(true, "asprintf test->module");
++    
++    if (asprintf(&fname, "%s.aug", test->module) == -1)
++       fail(true, "asprintf test->module");
++    
+     for (int i=0; i < strlen(fname); i++)
+         fname[i] = tolower(fname[i]);
++    
++    if (asprintf(&fpath, "%s/%s", lensdir, fname) == -1)
++        fail(true, "asprintf lensdir");
+ 
+-    r = __aug_load_module_file(aug, fname);
+-    fail(r < 0, "Could not load %s", fname);
++    r = __aug_load_module_file(aug, fpath);
++    fail(r < 0, "Could not load %s", fpath);
+ 
+     return 0;
+  error:

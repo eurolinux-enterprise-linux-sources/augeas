@@ -1,0 +1,25 @@
+From d6959e6211dc25040c9dd6bf8d75605a3a6155a0 Mon Sep 17 00:00:00 2001
+From: Dominic Cleal <dcleal@redhat.com>
+Date: Thu, 21 Mar 2013 08:45:54 +0000
+Subject: [PATCH] Shellvars: reinstate /etc/sysconfig/network
+
+Fixes #330, RHBZ#904222, RHBZ#920609
+---
+ lenses/shellvars.aug | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/lenses/shellvars.aug b/lenses/shellvars.aug
+index 5739e18..0c67f96 100644
+--- a/lenses/shellvars.aug
++++ b/lenses/shellvars.aug
+@@ -176,7 +176,6 @@ module Shellvars =
+       sc_excl "sysstat.ioconf" .
+       sc_excl "system-config-firewall" .
+       sc_excl "system-config-securitylevel" .
+-      sc_excl "network" .
+       sc_incl "network/config" .
+       sc_incl "network/dhcp" .
+       sc_incl "network/dhcp6r" .
+-- 
+1.8.1.4
+
