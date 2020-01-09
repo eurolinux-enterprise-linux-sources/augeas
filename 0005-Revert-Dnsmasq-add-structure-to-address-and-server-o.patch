@@ -11,8 +11,8 @@ unstructured.
 Conflicts:
 	NEWS
 ---
- lenses/dnsmasq.aug            | 34 +++++++++----------------------
- lenses/tests/test_dnsmasq.aug | 47 -------------------------------------------
+ lenses/dnsmasq.aug            | 34 +++++++------------------
+ lenses/tests/test_dnsmasq.aug | 47 -----------------------------------
  2 files changed, 9 insertions(+), 72 deletions(-)
 
 diff --git a/lenses/dnsmasq.aug b/lenses/dnsmasq.aug
@@ -134,5 +134,5 @@ index c6a63d96..0abfa6bd 100644
 -    { "domain" = "qux.net" }
 -  }
 -- 
-2.14.3
+2.17.2
 

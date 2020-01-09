@@ -8,10 +8,10 @@ the lens from 1.4.0 has been kept in the Slapd_140 module and is not
 loaded by default.  Use aug_transform, augtool --transform etc. to use
 it instead of Slapd.
 ---
- lenses/slapd.aug                |  18 ++---
- lenses/slapd_140.aug            | 158 ++++++++++++++++++++++++++++++++++++++++
- lenses/tests/test_slapd.aug     |  55 ++++----------
- lenses/tests/test_slapd_140.aug |  94 ++++++++++++++++++++++++
+ lenses/slapd.aug                |  18 ++--
+ lenses/slapd_140.aug            | 158 ++++++++++++++++++++++++++++++++
+ lenses/tests/test_slapd.aug     |  55 +++--------
+ lenses/tests/test_slapd_140.aug |  94 +++++++++++++++++++
  tests/Makefile.am               |   1 +
  5 files changed, 273 insertions(+), 53 deletions(-)
  create mode 100644 lenses/slapd_140.aug
@@ -414,5 +414,5 @@ index 315cac9c..65d8993e 100644
    lens-solaris_system.sh		\
    lens-soma.sh			\
 -- 
-2.14.3
+2.17.2
 

@@ -7,7 +7,7 @@ These keys are used to control the permissions for files and
 directories.
 ---
  lenses/cgconfig.aug            |  2 +-
- lenses/tests/test_cgconfig.aug | 45 ++++++++++++++++++++++++++++++++++++++++++
+ lenses/tests/test_cgconfig.aug | 45 ++++++++++++++++++++++++++++++++++
  2 files changed, 46 insertions(+), 1 deletion(-)
 
 diff --git a/lenses/cgconfig.aug b/lenses/cgconfig.aug
@@ -77,5 +77,5 @@ index 6cd0856d..84fd2ded 100644
 +  {  }
 +
 -- 
-2.14.3
+2.17.2
 

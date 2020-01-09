@@ -1,0 +1,26 @@
+From fb806708da719a37422d33fdda77de702c3c646e Mon Sep 17 00:00:00 2001
+From: Steve Traylen <steve.traylen@cern.ch>
+Date: Thu, 1 Nov 2018 13:54:32 +0100
+Subject: [PATCH] Fix sudoers lens: "always_query_group_plugin" (#588)
+
+The option is now enabled by default in the default sudoers of
+RHEL 7.6 (and probably soon CentOS 7).
+---
+ lenses/sudoers.aug | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/lenses/sudoers.aug b/lenses/sudoers.aug
+index 0437daae..d6140a8b 100644
+--- a/lenses/sudoers.aug
++++ b/lenses/sudoers.aug
+@@ -308,6 +308,7 @@ let parameter_flag_kw    = "always_set_home" | "authenticate" | "env_editor"
+                          | "closefrom_override" | "compress_io" | "fast_glob"
+                          | "log_input" | "log_output" | "pwfeedback"
+                          | "umask_override" | "use_pty" | "match_group_by_gid"
++                         | "always_query_group_plugin"
+ 
+ let parameter_flag       = [ del_negate . negate_node?
+                                . key parameter_flag_kw ]
+-- 
+2.17.2
+

@@ -21,8 +21,8 @@ get stripped, avoiding all these headaches.
 
 Fixes RHBZ https://bugzilla.redhat.com/show_bug.cgi?id=1475621
 ---
- src/pathx.c        | 27 +++++++++++++++++++------
- tests/test-xpath.c | 59 ++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ src/pathx.c        | 27 ++++++++++++++++-----
+ tests/test-xpath.c | 59 ++++++++++++++++++++++++++++++++++++++++++++++
  2 files changed, 80 insertions(+), 6 deletions(-)
 
 diff --git a/src/pathx.c b/src/pathx.c
@@ -158,5 +158,5 @@ index 335e7bf8..dbba29e0 100644
      aug_close(aug);
  
 -- 
-2.14.3
+2.17.2
 

@@ -9,8 +9,8 @@ Conflicts:
 	NEWS
 ---
  doc/naturaldocs/conf/lenses/Menu.txt |   2 +
- lenses/rhsm.aug                      |  42 ++++++++++
- lenses/tests/test_rhsm.aug           | 151 +++++++++++++++++++++++++++++++++++
+ lenses/rhsm.aug                      |  42 ++++++++
+ lenses/tests/test_rhsm.aug           | 151 +++++++++++++++++++++++++++
  tests/Makefile.am                    |   1 +
  4 files changed, 196 insertions(+)
  create mode 100644 lenses/rhsm.aug
@@ -254,5 +254,5 @@ index 65d8993e..4d2b2605 100644
    lens-rsyncd.sh		\
    lens-rsyslog.sh		\
 -- 
-2.14.3
+2.17.2
 
