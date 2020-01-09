@@ -1,4 +1,4 @@
-From 11a1410b32a902c4f220c5dfc20cd177e6031389 Mon Sep 17 00:00:00 2001
+From 2565e67f724032cdc6217c2a2d2c1bc25ca23605 Mon Sep 17 00:00:00 2001
 From: Pino Toscano <ptoscano@redhat.com>
 Date: Tue, 13 Feb 2018 07:21:55 +0100
 Subject: [PATCH] Fstab: allow leading whitespace in lines with spec (#544)
@@ -6,8 +6,6 @@ Subject: [PATCH] Fstab: allow leading whitespace in lines with spec (#544)
 The documentation does not explicitly mention this possibility, but
 tooling that parses fstab actually supports this: hence, allow leading
 whitespace in lines with filesystem specification.
-
-(cherry picked from commit 6ee7170cc04c934a70cbcd1caf3e5f8821806dec)
 ---
  lenses/fstab.aug            | 1 +
  lenses/tests/test_fstab.aug | 4 ++++

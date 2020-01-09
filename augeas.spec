@@ -1,6 +1,6 @@
 Name:           augeas
 Version:        1.4.0
-Release:        5%{?dist}.1
+Release:        6%{?dist}
 Summary:        A library for changing configuration files
 
 Group:          System Environment/Libraries
@@ -143,14 +143,14 @@ rm -rf $RPM_BUILD_ROOT
 %{_libdir}/pkgconfig/augeas.pc
 
 %changelog
-* Wed Mar 28 2018 Pino Toscano <ptoscanoredhat.com> - 1.4.0-5.el7_5.1
-- Fstab: allow leading whitespaces (RHBZ#1554927)
+* Thu Mar 29 2018 Pino Toscano <ptoscano@redhat.com> - 1.4.0-6
+- Fstab: allow leading whitespaces (RHBZ#1544520)
 
-* Wed Oct 04 2017 Pino Toscano <ptoscanoredhat.com> - 1.4.0-5
+* Wed Oct 04 2017 Pino Toscano <ptoscano@redhat.com> - 1.4.0-5
 - Cgconfig: allow fperm & dperm in admin & task (RHBZ#1325741)
 - Grub: handle top-level "boot" directive (RHBZ#1484261)
 
-* Mon Sep 04 2017 Pino Toscano <ptoscanoredhat.com> - 1.4.0-4
+* Mon Sep 04 2017 Pino Toscano <ptoscano@redhat.com> - 1.4.0-4
 - Fix CVE-2017-7555, improper handling of escaped strings (RHBZ#1481546)
 - Skip testSaveNoPermission when running as root (RHBZ#1269817)
 - Chrony: allow signed numbers (RHBZ#1302017)
