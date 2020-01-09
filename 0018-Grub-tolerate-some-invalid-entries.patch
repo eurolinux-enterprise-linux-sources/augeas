@@ -1,0 +1,159 @@
+From ccebad103f3466d5e8fc2b60f6127af618adf8d2 Mon Sep 17 00:00:00 2001
+From: David Lutterkort <lutter@watzmann.net>
+Date: Mon, 4 Jun 2018 10:45:19 -0700
+Subject: [PATCH] Grub: tolerate some invalid entries
+
+Refusing to parse an entire file because of invalid entries is too
+harsh. Try to make the behavior a little friendlier by simply mapping invalid
+entries to '#error' nodes but still parsing the rest of the file.
+
+Also remove del_to_eol, that would delete anything up to eol; it was only
+used in kw_pres, but should have never been used there. kw_pres should only
+match the keyword and eol. A line like 'quiet foo bar baz' should not be
+accepted by (kw_pres "quiet").
+---
+ lenses/grub.aug            | 58 ++++++++++++++++++++++++++++++++------
+ lenses/tests/test_grub.aug | 25 ++++++++++++++++
+ 2 files changed, 75 insertions(+), 8 deletions(-)
+
+diff --git a/lenses/grub.aug b/lenses/grub.aug
+index 9866f3f7..f99a3a92 100644
+--- a/lenses/grub.aug
++++ b/lenses/grub.aug
+@@ -29,9 +29,6 @@ module Grub =
+     (* View: eol *)
+     let eol = Util.eol
+ 
+-    (* View: del_to_eol *)
+-    let del_to_eol = del /[^ \t\n]*/ ""
+-
+     (* View: spc *)
+     let spc = Util.del_ws_spc
+ 
+@@ -92,7 +89,22 @@ module Grub =
+       eol ]
+ 
+     (* View: kw_pres *)
+-    let kw_pres (kw:string) = [ opt_ws . key kw . del_to_eol . eol ]
++    let kw_pres (kw:string) = [ opt_ws . key kw . eol ]
++
++    (* View: error
++     *   Parse a line that looks almost like a valid setting, but isn't,
++     *   into an '#error' node. Any line that starts with letters, but not
++     *   anything matching kw, is considered an error line.
++     *
++     *   Parameters:
++     *     kw:regexp - the valid keywords that are _not_ considered an
++     *                 error
++     *)
++    let error (kw:regexp) =
++      let not_kw = /[a-zA-Z]+/ - kw in
++      [ label "#error" . Util.del_opt_ws "\t"
++        . store (not_kw . /([^a-zA-Z\n].*[^ \t\n])?/) . eol ]
++
+ 
+ (************************************************************************
+  * Group:                 BOOT ENTRIES
+@@ -138,8 +150,8 @@ module Grub =
+         spc . [ label "from" . store Rx.no_spaces ] )? .
+       eol ]
+ 
+-    (* View: menu_setting *)
+-    let menu_setting = kw_menu_arg "default"
++    (* View: menu_entry *)
++    let menu_entry = kw_menu_arg "default"
+                      | kw_menu_arg "fallback"
+                      | kw_pres "hiddenmenu"
+                      | kw_menu_arg "timeout"
+@@ -156,6 +168,21 @@ module Grub =
+                      | device
+                      | setkey
+ 
++    (* View: menu_error
++     *   Accept lines not matching menu_entry and stuff them into
++     *   '#error' nodes
++     *)
++    let menu_error =
++      let kw = /default|fallback|hiddenmenu|timeout|splashimage|gfxmenu/
++             |/foreground|background|verbose|boot|password|title/
++             |/serial|setkey|terminal|color|device/ in
++      error kw
++
++    (* View: menu_setting
++     *   a valid menu setting or a line that looks like one but is an #error
++     *)
++    let menu_setting = menu_entry | menu_error
++
+     (* View: title *)
+     let title = del /title[ \t=]+/ "title " . value_to_eol . eol
+ 
+@@ -206,9 +233,9 @@ module Grub =
+     let configfile =
+       [ command "configfile" "\t" . spc . store Rx.no_spaces . eol ]
+ 
+-    (* View: boot_setting
++    (* View: boot_entry
+         <boot> entries *)
+-    let boot_setting =
++    let boot_entry =
+           let boot_arg_re = "root" | "initrd" | "rootnoverify" | "uuid"
+                           | "findroot" | "bootfs" (* Solaris extensions *)
+        in kw_boot_arg boot_arg_re
+@@ -223,6 +250,21 @@ module Grub =
+         | kw_pres "makeactive"
+         | password_arg
+ 
++    (* View: boot_error
++     *   Accept lines not matching boot_entry and stuff them into
++     *   '#error' nodes
++     *)
++    let boot_error =
++      let kw = /lock|uuid|password|root|initrd|rootnoverify|findroot|bootfs/
++             |/configfile|chainloader|title|boot|quiet|kernel|module/
++             |/makeactive|savedefault|map/ in
++      error kw
++
++    (* View: boot_setting
++     *   a valid boot setting or a line that looks like one but is an #error
++     *)
++    let boot_setting = boot_entry | boot_error
++
+     (* View: boot *)
+     let boot =
+       let line = ((boot_setting|comment)* . boot_setting)? in
+diff --git a/lenses/tests/test_grub.aug b/lenses/tests/test_grub.aug
+index 8a0d9f4a..75657203 100644
+--- a/lenses/tests/test_grub.aug
++++ b/lenses/tests/test_grub.aug
+@@ -257,3 +257,28 @@ password --encrypted ^9^32kwzzX./3WISQ0C /boot/grub/custom.lst
+     { "password" = "secret"
+       { "md5" }
+     } }
++
++  (* Test parsing of invalid entries via menu_error *)
++  test Grub.lns get "default=0\ncrud=no\n" =
++  { "default" = "0" }
++  { "#error" = "crud=no" }
++
++  (* We handle some pretty bizarre bad syntax *)
++  test Grub.lns get "default=0
++crud no
++valid:nope
++nonsense  =   yes
++bad arg1 arg2 arg3=v\n" =
++  { "default" = "0" }
++  { "#error" = "crud no" }
++  { "#error" = "valid:nope" }
++  { "#error" = "nonsense  =   yes" }
++  { "#error" = "bad arg1 arg2 arg3=v" }
++
++  (* Test parsing of invalid entries via boot_error *)
++  test Grub.lns get "title test
++    root (hd0,0)
++    crud foo\n" =
++  { "title" = "test"
++    { "root" = "(hd0,0)" }
++    { "#error" = "crud foo" } }
+-- 
+2.17.2
+

@@ -1,4 +1,4 @@
-From fb806708da719a37422d33fdda77de702c3c646e Mon Sep 17 00:00:00 2001
+From 4e8c541392486f14715c5ec05da4612fc2e26ad9 Mon Sep 17 00:00:00 2001
 From: Steve Traylen <steve.traylen@cern.ch>
 Date: Thu, 1 Nov 2018 13:54:32 +0100
 Subject: [PATCH] Fix sudoers lens: "always_query_group_plugin" (#588)

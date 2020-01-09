@@ -1,6 +1,6 @@
 Name:           augeas
 Version:        1.4.0
-Release:        6%{?dist}.1
+Release:        9%{?dist}
 Summary:        A library for changing configuration files
 
 Group:          System Environment/Libraries
@@ -24,7 +24,9 @@ Patch14:        0014-Fix-430-support-Krb5-include-dir.patch
 Patch15:        0015-Cgconfig-allow-fperm-dperm-in-admin-task.patch
 Patch16:        0016-Grub-handle-top-level-boot-directive-494.patch
 Patch17:        0017-Fstab-allow-leading-whitespace-in-lines-with-spec-54.patch
-Patch18:        0018-Fix-sudoers-lens-always_query_group_plugin-588.patch
+Patch18:        0018-Grub-tolerate-some-invalid-entries.patch
+Patch19:        0019-Fix-sudoers-lens-always_query_group_plugin-588.patch
+Patch20:        0020-New-lens-Anaconda-597.patch
 
 BuildRoot:      %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
@@ -60,6 +62,8 @@ developing applications that use %{name}.
 Summary:        Libraries for %{name}
 Group:          System Environment/Libraries
 
+Provides:       bundled(gnulib)
+
 %description    libs
 The libraries for %{name}.
 
@@ -84,6 +88,8 @@ The libraries for %{name}.
 %patch16 -p1
 %patch17 -p1
 %patch18 -p1
+%patch19 -p1
+%patch20 -p1
 
 # Patches affect Makefile.am and configure.ac, so rerun autotools.
 autoreconf
@@ -145,8 +151,16 @@ rm -rf $RPM_BUILD_ROOT
 %{_libdir}/pkgconfig/augeas.pc
 
 %changelog
-* Thu Nov 15 2018 Pino Toscano <ptoscano@redhat.com> - 1.4.0-6.el7_6.1
-- Sudoers: handle "always_query_group_plugin" option (RHBZ#1650174)
+* Wed Dec 19 2018 Pino Toscano <ptoscano@redhat.com> - 1.4.0-9
+- Add "Provides: bundled(gnulib)" to augeas-libs, as it embeds gnulib
+  (RHBZ#1653766)
+- Anaconda: new lens (RHBZ#1657189)
+
+* Tue Nov 13 2018 Pino Toscano <ptoscano@redhat.com> - 1.4.0-8
+- Sudoers: handle "always_query_group_plugin" option (RHBZ#1649287)
+
+* Tue Nov 13 2018 Pino Toscano <ptoscano@redhat.com> - 1.4.0-7
+- Grub: better handle invalid grub.conf files (RHBZ#1582236)
 
 * Thu Mar 29 2018 Pino Toscano <ptoscano@redhat.com> - 1.4.0-6
 - Fstab: allow leading whitespaces (RHBZ#1544520)
