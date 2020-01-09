@@ -1,0 +1,173 @@
+From f94e3f8bd6738f93ee6376d762192b64cc56c043 Mon Sep 17 00:00:00 2001
+From: Dominic Cleal <dcleal@redhat.com>
+Date: Wed, 29 Jan 2014 22:57:02 +0000
+Subject: [PATCH] Shellvars: handle case statements with same-line ;; tokens
+
+Fixes RHBZ#1033799
+
+(cherry picked from commit a1b9831d14f22f81cf7dc840160c08cc14234ee9)
+
+Conflicts:
+	NEWS
+	lenses/shellvars.aug
+---
+ lenses/shellvars.aug            | 62 ++++++++++++++++++++++++++---------------
+ lenses/sysconfig.aug            |  6 ++--
+ lenses/tests/test_shellvars.aug | 11 ++++++++
+ 3 files changed, 53 insertions(+), 26 deletions(-)
+
+diff --git a/lenses/shellvars.aug b/lenses/shellvars.aug
+index d19d0a4..b0340bf 100644
+--- a/lenses/shellvars.aug
++++ b/lenses/shellvars.aug
+@@ -59,38 +59,36 @@ module Shellvars =
+             | bquot | dbquot | dollar_assign | empty_array)
+ 
+   let export = [ key "export" . Util.del_ws_spc ]
+-  let kv = [ Util.indent . export? . key key_re
+-           . eq . (simple_value | array) . comment_or_eol ]
++  let kv = Util.indent . export? . key key_re
++           . eq . (simple_value | array)
+ 
+   let var_action (name:string) =
+-    [ Util.indent . xchgs name ("@" . name) . Util.del_ws_spc
+-    . store ((key_re . (/[ \t]+/ . key_re)*) | matching_re) . comment_or_eol ]
++    Util.indent . xchgs name ("@" . name) . Util.del_ws_spc
++    . store ((key_re . (/[ \t]+/ . key_re)*) | matching_re)
+ 
+   let unset = var_action "unset"
+   let bare_export = var_action "export"
+ 
+   let source =
+-    [ Util.indent
+-      . del /\.|source/ "." . label ".source"
+-      . Util.del_ws_spc . store /[^;=# \t\n]+/ . comment_or_eol ]
++    Util.indent
++    . del /\.|source/ "." . label ".source"
++    . Util.del_ws_spc . store /[^;=# \t\n]+/
+ 
+   let shell_builtin_cmds = "ulimit" | "shift" | "exit"
+ 
+   let builtin =
+-    [ Util.indent . label "@builtin"
+-      . store shell_builtin_cmds
+-      . (Util.del_ws_spc
+-      . [ label "args" . sto_to_semicol ])?
+-      . comment_or_eol ]
++    Util.indent . label "@builtin"
++    . store shell_builtin_cmds
++    . (Util.del_ws_spc
++    . [ label "args" . sto_to_semicol ])?
+ 
+   let keyword (kw:string) = Util.indent . Util.del_str kw
+   let keyword_label (kw:string) (lbl:string) = keyword kw . label lbl
+ 
+   let return =
+-    [ Util.indent . label "@return"
+-      . Util.del_str "return"
+-      . ( Util.del_ws_spc . store Rx.integer )?
+-      . comment_or_eol ]
++    Util.indent . label "@return"
++    . Util.del_str "return"
++    . ( Util.del_ws_spc . store Rx.integer )?
+ 
+ 
+ (************************************************************************
+@@ -126,11 +124,11 @@ module Shellvars =
+   let loop_select (entry:lens) =
+     generic_cond "select" "@select" "do" entry+ "done"
+ 
+-  let case (entry:lens) =
++  let case (entry:lens) (entry_noeol:lens) =
+     let case_entry = [ label "@case_entry"
+                        . Util.indent . store /[^ \t\n\)]+/
+                        . Util.del_str ")" . eol
+-                       . entry*
++                       . ( entry+ | entry_noeol )?
+                        . Util.indent . Util.del_str ";;" . eol ] in
+       [ keyword_label "case" "@case" . Sep.space
+         . store (char+ | ("\"" . char+ . "\""))
+@@ -147,20 +145,38 @@ module Shellvars =
+       . entry+
+       . Util.indent . Util.del_str "}" . eol ]
+ 
++  let entry_eol =
++    let entry_eol_item (item:lens) =
++      [ item . comment_or_eol ] in
++      entry_eol_item source
++        | entry_eol_item kv
++        | entry_eol_item unset
++        | entry_eol_item bare_export
++        | entry_eol_item builtin
++        | entry_eol_item return
++
++  let entry_noeol =
++    let entry_item (item:lens) = [ item ] in
++      entry_item source
++        | entry_item kv
++        | entry_item unset
++        | entry_item bare_export
++        | entry_item builtin
++        | entry_item return
++
+   let rec rec_entry =
+-    let entry = comment | source | kv
+-              | unset | bare_export | builtin | return | rec_entry in
++    let entry = comment | entry_eol | rec_entry in
+         cond_if entry
+       | loop_for entry
+       | loop_select entry
+       | loop_while entry
+       | loop_until entry
+-      | case entry
++      | case entry entry_noeol
+       | function entry
+ 
+-  let lns_norec = empty* . (comment | source | kv | unset | bare_export | builtin | return) *
++  let lns_norec = empty* . (comment | entry_eol) *
+ 
+-  let lns = empty* . (comment | source | kv | unset | bare_export | builtin | return | rec_entry) *
++  let lns = empty* . (comment | entry_eol | rec_entry) *
+ 
+   let sc_incl (n:string) = (incl ("/etc/sysconfig/" . n))
+   let sc_excl (n:string) = (excl ("/etc/sysconfig/" . n))
+diff --git a/lenses/sysconfig.aug b/lenses/sysconfig.aug
+index a39d7f3..59f4c80 100644
+--- a/lenses/sysconfig.aug
++++ b/lenses/sysconfig.aug
+@@ -54,10 +54,10 @@ module Sysconfig =
+ 
+   let var_action = Shellvars.var_action
+ 
+-  let unset = var_action "unset"
+-  let bare_export = var_action "export"
++  let unset = [ var_action "unset" . comment_or_eol ]
++  let bare_export = [ var_action "export" . comment_or_eol ]
+ 
+-  let source = Shellvars.source
++  let source = [ Shellvars.source . comment_or_eol ]
+ 
+   let lns = empty* . (comment | source | assign | unset | bare_export)*
+ 
+diff --git a/lenses/tests/test_shellvars.aug b/lenses/tests/test_shellvars.aug
+index 2b73111..8ac7743 100644
+--- a/lenses/tests/test_shellvars.aug
++++ b/lenses/tests/test_shellvars.aug
+@@ -439,6 +439,17 @@ esac\n" =
+   test lns get "export TestVar1 TestVar2\n" =
+     { "@export" = "TestVar1 TestVar2" }
+ 
++  (* Support ;; on same line as a case statement entry, RHBZ#1033799 *)
++  test lns get "case $ARG in
++        0) TestVar=\"test0\" ;;
++        1) TestVar=\"test1\" ;;
++esac\n" =
++    { "@case" = "$ARG"
++      { "@case_entry" = "0"
++        { "TestVar" = "\"test0\"" } }
++      { "@case_entry" = "1"
++        { "TestVar" = "\"test1\"" } } }
++
+ (* Local Variables: *)
+ (* mode: caml       *)
+ (* End:             *)

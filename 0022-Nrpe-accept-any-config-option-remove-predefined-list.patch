@@ -1,0 +1,76 @@
+From 1f38bfde414e55de499012e75a60d74704ee2b05 Mon Sep 17 00:00:00 2001
+From: Gonzalo Servat <gservat@gmail.com>
+Date: Sun, 31 Mar 2013 21:41:20 +0100
+Subject: [PATCH] Nrpe: accept any config option, remove predefined list
+
+(cherry picked from commit 3c3007871ac7d3033813e6674ca6388460ca27a4)
+---
+ AUTHORS         |  1 +
+ lenses/nrpe.aug | 26 +++++++-------------------
+ 2 files changed, 8 insertions(+), 19 deletions(-)
+
+diff --git a/AUTHORS b/AUTHORS
+index 1639265..0446b7d 100644
+--- a/AUTHORS
++++ b/AUTHORS
+@@ -63,6 +63,7 @@ Contributions by:
+   Carlos Sanchez              <csanchez@maestrodev.com>
+   Satoru SATOH                <satoru.satoh@gmail.com>
+   Nicolas Valcárcel Scerpella <nvalcarcel@ubuntu.com>
++  Gonzalo Servat              <gservat@gmail.com>
+   Nahum Shalman               <nshalman elys com>
+   Tim Stoop                   <tim.stoop@gmail.com>
+   Laine Stump                 <laine@laine.org>
+diff --git a/lenses/nrpe.aug b/lenses/nrpe.aug
+index de201b7..3f27805 100644
+--- a/lenses/nrpe.aug
++++ b/lenses/nrpe.aug
+@@ -18,6 +18,8 @@ let eq = Sep.equal
+ (* View: word *)
+ let word = /[^=\n\t ]+/
+ 
++(* View: item_re *)
++let item_re = /[^#=\n\t\/ ]+/ - /command\[[^]\/\n]+\]/ - "include" - "include_dir"
+ 
+ (* View: command
+     nrpe.cfg usually has many entries defining commands to run
+@@ -34,26 +36,12 @@ let command =
+     ]
+ 
+ 
+-(* View: item_re
+-     regular entries re *)
+-let item_re = "server_port"
+-            | "command_prefix"
+-            | "server_address"
+-            | "allowed_hosts"
+-            | "debug"
+-            | "nrpe_user"
+-            | "nrpe_group"
+-            | "dont_blame_nrpe"
+-            | "command_timeout"
+-            | "connection_timeout"
+-            | "allow_weak_random_seed"
+-            | "pid_file"
+-            | "log_facility"
+-
+ (* View: item
+-     regular entries *)
+-let item = [ key item_re . eq . store word . eol ]
++     regular entries
+ 
++     > allow_bash_command_substitution=0
++*)
++let item = [ key item_re . eq . store word . eol ]
+ 
+ (* View: include
+     An include entry.
+@@ -84,7 +72,7 @@ let empty = Util.empty
+ 
+ (* View: lns
+     The Nrpe lens *)
+-let lns = ( command | item | include | include_dir | comment | empty ) *
++let lns = ( command | include | include_dir | item | comment | empty ) *
+ 
+ (* View: filter
+     File filter *)

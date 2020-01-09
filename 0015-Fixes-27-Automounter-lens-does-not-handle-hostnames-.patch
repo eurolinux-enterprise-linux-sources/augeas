@@ -1,0 +1,60 @@
+From ae0794769b8d6af1f6332fb2ab349254ea5d2e30 Mon Sep 17 00:00:00 2001
+From: Jan Vansteenkiste <jan@vstone.eu>
+Date: Thu, 27 Jun 2013 14:10:26 +0200
+Subject: [PATCH] Fixes #27: Automounter lens does not handle hostnames with
+ dashes in them
+
+(cherry picked from commit e6643d81a480d99886070243455456e5d0147885)
+---
+ lenses/automounter.aug            |  2 +-
+ lenses/tests/test_automounter.aug | 16 +++++++++++++++-
+ 2 files changed, 16 insertions(+), 2 deletions(-)
+
+diff --git a/lenses/automounter.aug b/lenses/automounter.aug
+index 029acbf..f830c7d 100644
+--- a/lenses/automounter.aug
++++ b/lenses/automounter.aug
+@@ -40,7 +40,7 @@ let comment = Util.comment
+ let path = /[^-+#: \t\n][^#: \t\n]*/
+ 
+ (* View: hostname *)
+-let hostname = /[^-:#\(\), \n\t]+/
++let hostname = /[^-:#\(\), \n\t][^:#\(\), \n\t]*/
+ 
+ (* An option label can't contain comma, comment, equals, or space *)
+ let optlabel = /[^,#:\(\)= \n\t]+/
+diff --git a/lenses/tests/test_automounter.aug b/lenses/tests/test_automounter.aug
+index 7c2db86..c84fc0a 100644
+--- a/lenses/tests/test_automounter.aug
++++ b/lenses/tests/test_automounter.aug
+@@ -25,6 +25,8 @@ server    -rw,hard,intr       / -ro myserver.me.org:/ \
+                               /usr myserver.me.org:/usr \
+                               /home myserver.me.org:/home
+ 
++server    -rw,hard,intr       / -ro my-with-dash-server.me.org:/
++
+ # included maps
+ +auto_home
+ "
+@@ -148,8 +150,20 @@ server    -rw,hard,intr       / -ro myserver.me.org:/ \
+                         { "host" = "myserver.me.org" }
+                         { "path" = "/home" } } } } } }
+     { }
++    { "11" = "server"
++        { "opt" = "rw" }
++        { "opt" = "hard" }
++        { "opt" = "intr" }
++        { "mount"
++            { "1" = "/"
++                { "opt" = "ro" }
++                { "location"
++                    { "1"
++                        { "host" = "my-with-dash-server.me.org" }
++                        { "path" = "/" } } } } } }
++    { }
+     { "#comment" = "included maps" }
+-    { "11" = "+"
++    { "12" = "+"
+         { "map" = "auto_home" } }
+ 
+ (* Local Variables: *)

@@ -1,26 +1,35 @@
 Name:           augeas
 Version:        1.0.0
-Release:        5%{?dist}.1
+Release:        7%{?dist}
 Summary:        A library for changing configuration files
 
 Group:          System Environment/Libraries
 License:        LGPLv2+
 URL:            http://augeas.net/
 Source0:        http://augeas.net/download/%{name}-%{version}.tar.gz
-
-# Format of the patch name is augeas-VERSION-NUMBER-HASH where VERSION
-# gives the first version where this patch was applied, NUMBER orders patches
-# against the same version, and HASH is the git commit hash from upstream
-
-# Upstream, fixes a regression introduced in 1.0.0 (thanks Dominic Cleal).
-Patch1:         augeas-1.0.0-01-d6959e62.patch
-
-# https://fedorahosted.org/augeas/ticket/332
-# Added upstream after 1.0.0.  Necessary to fix the build in Koji.
-Patch2:         augeas-1.0.0-test-run-issue-332.patch
-
-# CVE-2013-6412, fix strict umask handling, f5b4fc0c
-Patch3:         augeas-1.0.0-cve-2013-6412-umask.patch
+Patch1:         0001-Shellvars-reinstate-etc-sysconfig-network.patch
+Patch2:         0002-tests-test-run.c-load_module-do-not-downcase-the-len.patch
+Patch3:         0003-Fix-umask-handling-when-creating-new-files.patch
+Patch4:         0004-Grub-support-the-setkey-directive.patch
+Patch5:         0005-Added-support-for-ActiveMQ-Red-Hat-JBoss-A-MQ.patch
+Patch6:         0006-Add-Splunk-lens.patch
+Patch7:         0007-Sudoers-Allow-user-aliases-in-specs.patch
+Patch8:         0008-tests-test-load.c-testPermsErrorReported-skip-permis.patch
+Patch9:         0009-RHBZ-1033795-RHEL-6-compatible-multiple-exports-fix.patch
+Patch10:        0010-Shellvars-handle-case-statements-with-same-line-toke.patch
+Patch11:        0011-Sysconfig-permit-empty-comments-after-comment-lines.patch
+Patch12:        0012-Grub-handle-foreground-option.patch
+Patch13:        0013-Yum-permit-spaces-after-equals-sign-in-list-options.patch
+Patch14:        0014-IniFile-Add-ready-to-use-lns_loose-and-lns_loose_mul.patch
+Patch15:        0015-Fixes-27-Automounter-lens-does-not-handle-hostnames-.patch
+Patch16:        0016-Rsyslog-parse-property-filters-and-file-actions-with.patch
+Patch17:        0017-Ldso-handle-hwcap-lines.patch
+Patch18:        0018-Sudoers-permit-underscores-in-group-names.patch
+Patch19:        0019-man-augtool.pod-update-man-page-with-new-commands.patch
+Patch20:        0020-src-augrun.c-remove-unused-filename-argument-from-du.patch
+Patch21:        0021-src-augtool.c-add-command-aliases-to-autocomplete.patch
+Patch22:        0022-Nrpe-accept-any-config-option-remove-predefined-list.patch
+Patch23:        0023-man-augtool.pod-fix-description-of-move-alias.patch
 
 BuildRoot:      %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
@@ -61,6 +70,26 @@ The libraries for %{name}.
 %patch1 -p1
 %patch2 -p1
 %patch3 -p1
+%patch4 -p1
+%patch5 -p1
+%patch6 -p1
+%patch7 -p1
+%patch8 -p1
+%patch9 -p1
+%patch10 -p1
+%patch11 -p1
+%patch12 -p1
+%patch13 -p1
+%patch14 -p1
+%patch15 -p1
+%patch16 -p1
+%patch17 -p1
+%patch18 -p1
+%patch19 -p1
+%patch20 -p1
+%patch21 -p1
+%patch22 -p1
+%patch23 -p1
 
 %build
 %configure --disable-static
@@ -122,8 +151,30 @@ rm -rf $RPM_BUILD_ROOT
 %{_libdir}/pkgconfig/augeas.pc
 
 %changelog
-* Tue Jan 14 2014 Dominic Cleal <dcleal@redhat.com> - 1.0.0-5.1
-- Fix CVE-2013-6412, incorrect permissions under strict umask (RHBZ#1036079)
+* Fri Jun 13 2014 Dominic Cleal <dcleal@redhat.com> - 1.0.0-7
+* docs: fix description of 'move' alias (RHBZ#1100186)
+
+* Tue Jun 03 2014 Dominic Cleal <dcleal@redhat.com> - 1.0.0-6
+- Fix CVE-2013-6412, incorrect permissions under strict umask (RHBZ#1036080)
+- Grub: support 'setkey' and 'lock' directives (RHBZ#1001635)
+- ActiveMQ: add ActiveMQ lens (RHBZ#1016899)
+- Splunk: add Splunk lens (RHBZ#1016900)
+- Sudoers: user aliases fail to parse (RHBZ#1016904)
+- Tests: testPermsError during compilation (RHBZ#1024275)
+- Shellvars: multi-variable export lines (RHBZ#1033795)
+- Shellvars: case statements with same-line ;; tokens (RHBZ#1033799)
+- Sysconfig: permit empty comments (RHBZ#1043636)
+- Grub: support 'foreground' directive (RHBZ#1059383)
+- Yum: permit space after equals sign (RHBZ#1062091)
+- IniFile: add generic INI lenses (RHBZ#1073072)
+- Automounter: permit hostnames with hyphens (RHBZ#1075112)
+- Rsyslog: parse property filters and templates (RHBZ#1083016)
+- Ldso: parse hwcap lines (RHBZ#1083021)
+- Sudoers: permit underscores in group names (RHBZ#1093711)
+- augtool: remove dump-xml filename arg (RHBZ#1100182)
+- augtool: add commands to autocomplete (RHBZ#1100184)
+- docs: update command and arg lists (RHBZ#1100186)
+- Nrpe: parse unknown config options (RHBZ#1100237)
 
 * Wed Jun  5 2013 Richard W.M. Jones <rjones@redhat.com> - 1.0.0-5
 - Don't package lenses in tests/ subdirectory.

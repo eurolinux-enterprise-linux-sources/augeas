@@ -1,0 +1,88 @@
+From ff2d7335ce5d5d7ac2ff84d718843122d79e1a03 Mon Sep 17 00:00:00 2001
+From: Matthew Booth <mbooth@redhat.com>
+Date: Tue, 27 Aug 2013 15:24:48 +0100
+Subject: [PATCH] Grub: support the 'setkey' directive
+
+(cherry picked from commit bc46ce8269a89a55b87a906226cfe8b54e9e5d11)
+
+Grub: support the 'lock' directive
+
+(cherry picked from commit e3f1c15155fba5c10e74b400f2b06c8a31372420)
+---
+ lenses/grub.aug            | 8 ++++++++
+ lenses/tests/test_grub.aug | 8 ++++++++
+ 2 files changed, 16 insertions(+)
+
+diff --git a/lenses/grub.aug b/lenses/grub.aug
+index 2c19ffa..4ac2738 100644
+--- a/lenses/grub.aug
++++ b/lenses/grub.aug
+@@ -132,6 +132,12 @@ module Grub =
+           |[ spc . switch_arg /timeout|lines/ ])* .
+           [ spc . key /console|serial|hercules/ ]* . eol ]
+ 
++    (* View: setkey *)
++    let setkey = [ command "setkey" "" .
++      ( spc . [ label "to" . store Rx.no_spaces ] .
++        spc . [ label "from" . store Rx.no_spaces ] )? .
++      eol ]
++
+     (* View: menu_setting *)
+     let menu_setting = kw_menu_arg "default"
+                      | kw_menu_arg "fallback"
+@@ -145,6 +151,7 @@ module Grub =
+                      | password_arg
+                      | color
+ 		     | device
++                     | setkey
+ 
+     (* View: title *)
+     let title = del /title[ \t=]+/ "title " . value_to_eol . eol
+@@ -209,6 +216,7 @@ module Grub =
+         | configfile
+         | module_line
+         | map_line
++        | kw_pres "lock"
+ 
+     (* View: boot *)
+     let boot =
+diff --git a/lenses/tests/test_grub.aug b/lenses/tests/test_grub.aug
+index 3eba710..d5e6304 100644
+--- a/lenses/tests/test_grub.aug
++++ b/lenses/tests/test_grub.aug
+@@ -12,6 +12,8 @@ module Test_grub =
+ device (hd0) HD(1,800,64000,9895c137-d4b2-4e3b-a93b-dc9ac4)
+ password --md5 $1$M9NLj$p2gs87vwNv48BUu.wAfVw0
+ default=0
++setkey
++setkey less backquote
+ background 103332
+ timeout=5
+ splashimage=(hd0,0)/grub/splash.xpm.gz
+@@ -36,6 +38,7 @@ title Fedora (2.6.24.3-34.fc8)
+         initrd /initrd-2.6.24.3-34.fc8.img
+         map (hd0) (hd1)
+ title othermenu
++        lock
+         configfile /boot/grub/othergrub.conf
+ "
+ 
+@@ -54,6 +57,10 @@ title othermenu
+     { "password" = "$1$M9NLj$p2gs87vwNv48BUu.wAfVw0"
+         { "md5" } }
+     { "default" = "0" }
++    { "setkey" }
++    { "setkey"
++        { "to" = "less" }
++        { "from" = "backquote" } }
+     { "background" = "103332" }
+     { "timeout" = "5" }
+     { "splashimage" = "(hd0,0)/grub/splash.xpm.gz" }
+@@ -82,6 +89,7 @@ title othermenu
+         { "initrd" = "/initrd-2.6.24.3-34.fc8.img" }
+         { "map" { "from" = "(hd0)" } { "to" = "(hd1)" } } }
+     { "title" = "othermenu"
++        { "lock" }
+         { "configfile" = "/boot/grub/othergrub.conf" } }
+ 
+ 

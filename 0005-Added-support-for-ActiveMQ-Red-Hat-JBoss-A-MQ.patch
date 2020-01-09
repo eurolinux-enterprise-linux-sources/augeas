@@ -1,0 +1,655 @@
+From a31029b1c4c43cb43bff1e5b6ecd3e720377960c Mon Sep 17 00:00:00 2001
+From: Brian Harrington <bharrington@redhat.com>
+Date: Wed, 8 May 2013 21:38:26 +0000
+Subject: [PATCH] Added support for ActiveMQ / Red Hat JBoss A-MQ
+
+Added a series of lenses to support the file formats utilized with
+the project ActiveMQ / Red Hat JBoss A-MQ.
+
+ActiveMQ is a standards-based, open source messaging platform
+shipped by Red Hat (Formerly Fuse Source).
+
+http://activemq.apache.org/
+http://www.redhat.com/products/jbossenterprisemiddleware/amq/
+(cherry picked from commit 3e4377c92e15185a1ab6847fbd1d70a50ed87c19)
+
+Conflicts:
+	doc/naturaldocs/conf/lenses/Menu.txt
+---
+ doc/naturaldocs/conf/lenses/Menu.txt | 10 ++++++
+ lenses/activemq_conf.aug             | 60 +++++++++++++++++++++++++++++++++
+ lenses/activemq_xml.aug              | 40 ++++++++++++++++++++++
+ lenses/jettyrealm.aug                | 55 ++++++++++++++++++++++++++++++
+ lenses/jmxaccess.aug                 | 57 +++++++++++++++++++++++++++++++
+ lenses/jmxpassword.aug               | 55 ++++++++++++++++++++++++++++++
+ lenses/tests/test_activemq_conf.aug  | 35 +++++++++++++++++++
+ lenses/tests/test_activemq_xml.aug   | 65 ++++++++++++++++++++++++++++++++++++
+ lenses/tests/test_jettyrealm.aug     | 51 ++++++++++++++++++++++++++++
+ lenses/tests/test_jmxaccess.aug      | 35 +++++++++++++++++++
+ lenses/tests/test_jmxpassword.aug    | 35 +++++++++++++++++++
+ tests/Makefile.am                    |  5 +++
+ 12 files changed, 503 insertions(+)
+ create mode 100644 lenses/activemq_conf.aug
+ create mode 100644 lenses/activemq_xml.aug
+ create mode 100644 lenses/jettyrealm.aug
+ create mode 100644 lenses/jmxaccess.aug
+ create mode 100644 lenses/jmxpassword.aug
+ create mode 100644 lenses/tests/test_activemq_conf.aug
+ create mode 100644 lenses/tests/test_activemq_xml.aug
+ create mode 100644 lenses/tests/test_jettyrealm.aug
+ create mode 100644 lenses/tests/test_jmxaccess.aug
+ create mode 100644 lenses/tests/test_jmxpassword.aug
+
+diff --git a/doc/naturaldocs/conf/lenses/Menu.txt b/doc/naturaldocs/conf/lenses/Menu.txt
+index fd6a4b7..c523ab0 100644
+--- a/doc/naturaldocs/conf/lenses/Menu.txt
++++ b/doc/naturaldocs/conf/lenses/Menu.txt
+@@ -54,6 +54,8 @@ Group: Main Site  {
+ Group: Specific Modules  {
+ 
+    File: Access  (access.aug)
++   File: ActiveMQ_Conf  (activemq_conf.aug)
++   File: ActiveMQ_XML  (activemq_xml.aug)
+    File: Aliases  (aliases.aug)
+    File: Anacron  (anacron.aug)
+    File: Approx  (approx.aug)
+@@ -87,6 +89,9 @@ Group: Specific Modules  {
+    File: Hosts_Access  (hosts_access.aug)
+    File: Host_Conf  (host_conf.aug)
+    File: Inputrc  (inputrc.aug)
++   File: JettyRealm  (jettyrealm.aug)
++   File: JMXAccess  (jmxaccess.aug)
++   File: JMXPassword  (jmxpassword.aug)
+    File: Iptables  (iptables.aug)
+    File: Kdump  (kdump.aug)
+    File: Keepalived  (keepalived.aug)
+@@ -164,6 +169,8 @@ Group: Generic Modules  {
+ Group: Tests and Examples  {
+ 
+    File: Test_Access  (tests/test_access.aug)
++   File: Test_ActiveMQ_Conf  (tests/test_activemq_conf.aug)
++   File: Test_ActiveMQ_XML  (tests/test_activemq_xml.aug)
+    File: Test_Anacron  (tests/test_anacron.aug)
+    File: Test_Approx  (tests/test_approx.aug)
+    File: Test_Apt_Update_Manager  (tests/test_apt_update_manager.aug)
+@@ -176,6 +183,9 @@ Group: Tests and Examples  {
+    File: Test_GtkBookmarks  (tests/test_gtkbookmarks.aug)
+    File: Test_IniFile  (tests/test_inifile.aug)
+    File: Test_Inputrc  (tests/test_inputrc.aug)
++   File: Test_JettyRealm  (tests/test_jettyrealm.aug)
++   File: Test_JMXAccess  (tests/test_jmxaccess.aug)
++   File: Test_JMXPassword  (tests/test_jmxpassword.aug)
+    File: Test_Keepalived  (tests/test_keepalived.aug)
+    File: Test_login_defs  (tests/test_login_defs.aug)
+    File: Test_NetworkManager  (tests/test_networkmanager.aug)
+diff --git a/lenses/activemq_conf.aug b/lenses/activemq_conf.aug
+new file mode 100644
+index 0000000..2bb81ee
+--- /dev/null
++++ b/lenses/activemq_conf.aug
+@@ -0,0 +1,60 @@
++(*
++ActiveMQ / FuseMQ conf module for Augeas
++
++Author: Brian Redbeard <redbeard@dead-city.org>
++
++About: Reference
++  This lens ensures that conf files included in ActiveMQ /FuseMQ are properly
++  handled by Augeas.
++
++About: License
++  This file is licensed under the LGPL License.
++
++About: Lens Usage
++  Sample usage of this lens in augtool:
++
++    * Get your current setup
++      > print /files/etc/activemq.conf
++      ...
++
++    * Change ActiveMQ Home
++      > set /files/etc/activemq.conf/ACTIVEMQ_HOME /usr/share/activemq
++
++  Saving your file:
++
++      > save
++
++About: Configuration files
++  This lens applies to relevant conf files located in  /etc/activemq/ and 
++  the file /etc/activemq.conf . See <filter>.
++
++*)
++
++module ActiveMQ_Conf =
++        autoload xfm
++
++(* Variable: blank_val *)
++let blank_val = del /^\z/
++
++(* View: entry *)
++let entry =
++  Build.key_value_line Rx.word Sep.space_equal Quote.any_opt
++
++(* View: empty_entry *)
++let empty_entry = Build.key_value_line Rx.word Sep.equal  Quote.dquote_opt_nil
++
++(* View: lns *)
++let lns = (Util.empty | Util.comment | entry | empty_entry )*
++
++(* Variable: filter *)
++let filter = incl "/etc/activemq.conf"
++           . incl "/etc/activemq/*"
++           . excl "/etc/activemq/*.xml"
++           . excl "/etc/activemq/jmx.*"
++           . excl "/etc/activemq/jetty-realm.properties"
++           . excl "/etc/activemq/*.ts"
++           . excl "/etc/activemq/*.ks"
++           . excl "/etc/activemq/*.cert"
++           . Util.stdexcl
++
++let xfm = transform lns filter
+diff --git a/lenses/activemq_xml.aug b/lenses/activemq_xml.aug
+new file mode 100644
+index 0000000..fc2abcd
+--- /dev/null
++++ b/lenses/activemq_xml.aug
+@@ -0,0 +1,40 @@
++(*
++ActiveMQ / FuseMQ XML module for Augeas
++
++Author: Brian Redbeard <redbeard@dead-city.org>
++
++About: Reference
++  This lens ensures that XML files included in ActiveMQ / FuseMQ are properly
++  handled by Augeas.
++
++About: License
++  This file is licensed under the LGPL License.
++
++About: Lens Usage
++  Sample usage of this lens in augtool:
++
++    * Get your current setup
++      > print /files/etc/activemq/activemq.xml
++      ...
++
++    * Change OpenShift domain
++      > set /files/etc/openshift/broker.conf/CLOUD_DOMAIN ose.example.com
++
++  Saving your file:
++
++      > save
++
++About: Configuration files
++  This lens applies to relevant XML files located in  /etc/activemq/ . See <filter>.
++
++*)
++
++module ActiveMQ_XML =
++        autoload xfm
++
++let lns = Xml.lns
++
++let filter = (incl "/etc/activemq/*.xml") 
++           . Util.stdexcl
++
++let xfm = transform lns filter
+diff --git a/lenses/jettyrealm.aug b/lenses/jettyrealm.aug
+new file mode 100644
+index 0000000..54d3e4d
+--- /dev/null
++++ b/lenses/jettyrealm.aug
+@@ -0,0 +1,55 @@
++(*
++JettyRealm Properties for Augeas
++
++Author: Brian Redbeard <redbeard@dead-city.org>
++
++About: Reference
++  This lens ensures that properties files for JettyRealms are properly
++  handled by Augeas.
++
++About: License
++  This file is licensed under the LGPL License.
++
++About: Lens Usage
++  Sample usage of this lens in augtool:
++
++    * Create a new user
++      > ins user  after /files/etc/activemq/jetty-realm.properties/user
++      > set /files/etc/activemq/jetty-realm.properties/user[last()]/username redbeard
++      > set /files/etc/activemq/jetty-realm.properties/user[last()]/password testing
++      > set /files/etc/activemq/jetty-realm.properties/user[last()]/realm admin
++      ...
++
++    * Delete the user named sample_user
++      > rm /files/etc/activemq/jetty-realm.properties/user[*][username = "sample_user"]
++
++  Saving your file:
++
++      > save
++
++About: Configuration files
++  This lens applies to jetty-realm.properties files. See <filter>.
++*)
++
++module JettyRealm =
++        autoload xfm
++
++
++(* View: comma_sep *)
++let comma_sep = del /,[ \t]*/ ", "
++
++(* View: realm_entry *)
++let realm_entry = [ label "user" .
++                    [ label "username" . store Rx.word ] . del /[ \t]*:[ \t]*/ ": " .
++                    [ label "password" . store Rx.word ] . 
++                    [ label "realm" . comma_sep . store Rx.word ]* .
++                    Util.eol ]
++
++(* View: lns *)
++let lns = ( Util.comment | Util.empty | realm_entry )*
++
++
++(* Variable: filter *)
++let filter = incl "/etc/activemq/jetty-realm.properties"
++
++let xfm = transform lns filter
+diff --git a/lenses/jmxaccess.aug b/lenses/jmxaccess.aug
+new file mode 100644
+index 0000000..a35f5d9
+--- /dev/null
++++ b/lenses/jmxaccess.aug
+@@ -0,0 +1,57 @@
++(*
++JMXAccess  module for Augeas
++
++Author: Brian Redbeard <redbeard@dead-city.org>
++
++
++About: Reference
++  This lens ensures that files included in JMXAccess are properly
++  handled by Augeas.
++
++About: License
++  This file is licensed under the LGPL License.
++
++About: Lens Usage
++  Sample usage of this lens in augtool:
++
++    * Create a new user
++      > ins user  after /files/etc/activemq/jmx.access
++      > set /files/etc/activemq/jmx.password/user[last()]/username redbeard
++      > set /files/etc/activemq/jmx.password/user[last()]/access readonly
++      ...
++
++    * Delete the user named sample_user
++      > rm /files/etc/activemq/jmx.password/user[*][username = "sample_user"]
++
++  Saving your file:
++
++      > save
++
++About: Configuration files
++  This lens applies to relevant conf files located in  /etc/activemq/ 
++  The following views correspond to the related files:
++    * access_entry:
++      /etc/activemq/jmx.access
++  See <filter>.
++  
++
++*)
++
++module JMXAccess =
++        autoload xfm
++
++(* View: access_entry *)
++let access_entry = [ label "user" .
++                    [ label "username" . store Rx.word ] . Sep.space .
++                    [ label "access" . store /(readonly|readwrite)/i ] . Util.eol ]
++
++
++
++(* View: lns *)
++let lns = ( Util.comment | Util.empty | access_entry )*
++
++
++(* Variable: filter *)
++let filter = incl "/etc/activemq/jmx.access"
++
++let xfm = transform lns filter
+diff --git a/lenses/jmxpassword.aug b/lenses/jmxpassword.aug
+new file mode 100644
+index 0000000..5c7f538
+--- /dev/null
++++ b/lenses/jmxpassword.aug
+@@ -0,0 +1,55 @@
++(*
++JMXPassword for Augeas
++
++Author: Brian Redbeard <redbeard@dead-city.org>
++
++
++About: Reference
++  This lens ensures that files included in JMXPassword are properly
++  handled by Augeas.
++
++About: License
++  This file is licensed under the LGPL License.
++
++About: Lens Usage
++  Sample usage of this lens in augtool:
++
++    * Create a new user
++      > ins user  after /files/etc/activemq/jmx.password
++      > set /files/etc/activemq/jmx.password/user[last()]/username redbeard
++      > set /files/etc/activemq/jmx.password/user[last()]/password testing
++      ...
++
++    * Delete the user named sample_user
++      > rm /files/etc/activemq/jmx.password/user[*][username = "sample_user"]
++
++  Saving your file:
++
++      > save
++
++About: Configuration files
++  This lens applies to relevant conf files located in  /etc/activemq/ 
++  The following views correspond to the related files:
++    * pass_entry:
++      /etc/activemq/jmx.password
++  See <filter>.
++  
++
++*)
++
++module JMXPassword =
++        autoload xfm
++
++(* View: pass_entry *)
++let pass_entry = [ label "user" .
++                    [ label "username" . store Rx.word ] . Sep.space .
++                    [ label "password" . store Rx.no_spaces ] . Util.eol ]
++
++(* View: lns *)
++let lns = ( Util.comment | Util.empty | pass_entry )*
++
++
++(* Variable: filter *)
++let filter = incl "/etc/activemq/jmx.password"
++
++let xfm = transform lns filter
+diff --git a/lenses/tests/test_activemq_conf.aug b/lenses/tests/test_activemq_conf.aug
+new file mode 100644
+index 0000000..8443e2f
+--- /dev/null
++++ b/lenses/tests/test_activemq_conf.aug
+@@ -0,0 +1,35 @@
++(*
++Module: Test_ActiveMQ_Conf
++  Provides unit tests and examples for the <ActiveMQ_Conf> lens.
++*)
++
++module Test_ActiveMQ_Conf =
++
++(* Variable: conf *)
++let conf = "
++ACTIVEMQ_HOME=/usr/share/activemq
++ACTIVEMQ_BASE=${ACTIVEMQ_HOME}
++"
++
++(* Variable: new_conf *) 
++let new_conf = "
++ACTIVEMQ_HOME=/usr/local/share/activemq
++ACTIVEMQ_BASE=${ACTIVEMQ_HOME}
++"
++
++let lns = ActiveMQ_Conf.lns 
++
++(* Test: ActiveMQ_Conf.lns  
++ * Get test against tree structure
++*)
++test lns get conf = 
++    { }
++    { "ACTIVEMQ_HOME" = "/usr/share/activemq" }
++    { "ACTIVEMQ_BASE" = "${ACTIVEMQ_HOME}" }
++
++(* Test: ActiveMQ_Conf.lns  
++ * Put test changing user to nobody
++*)
++test lns put conf after set "/ACTIVEMQ_HOME" "/usr/local/share/activemq" = new_conf
++
++(* vim: set ts=4  expandtab  sw=4: *)
+diff --git a/lenses/tests/test_activemq_xml.aug b/lenses/tests/test_activemq_xml.aug
+new file mode 100644
+index 0000000..c31a5b6
+--- /dev/null
++++ b/lenses/tests/test_activemq_xml.aug
+@@ -0,0 +1,65 @@
++(*
++Module: Test_ActiveMQ_XML
++  Provides unit tests and examples for the <ActiveMQ_XML> lens.
++*)
++
++module Test_ActiveMQ_XML =
++
++(* Variable: conf *)
++let conf = "<beans>
++ <broker xmlns=\"http://activemq.apache.org/schema/core\" brokerName=\"localhost\" dataDirectory=\"${activemq.data}\">
++  <transportConnectors>
++   <transportConnector name=\"openwire\" uri=\"tcp://0.0.0.0:61616\"/>
++  </transportConnectors>
++ </broker>
++</beans>
++"
++
++(* Variable: new_conf *) 
++let new_conf = "<beans>
++ <broker xmlns=\"http://activemq.apache.org/schema/core\" brokerName=\"localhost\" dataDirectory=\"${activemq.data}\">
++  <transportConnectors>
++   <transportConnector name=\"openwire\" uri=\"tcp://127.0.0.1:61616\"/>
++  </transportConnectors>
++ </broker>
++</beans>
++"
++
++let lns = ActiveMQ_XML.lns 
++
++(* Test: ActiveMQ_XML.lns  
++ * Get test against tree structure
++*)
++test lns get conf = 
++  { "beans"
++    { "#text" = "
++ " }
++    { "broker"
++      { "#attribute"
++        { "xmlns" = "http://activemq.apache.org/schema/core" }
++        { "brokerName" = "localhost" }
++        { "dataDirectory" = "${activemq.data}" }
++      }
++      { "#text" = "
++  " }
++      { "transportConnectors"
++        { "#text" = "
++   " }
++        { "transportConnector" = "#empty"
++          { "#attribute"
++            { "name" = "openwire" }
++            { "uri" = "tcp://0.0.0.0:61616" }
++          }
++        }
++        { "#text" = "  " }
++      }
++      { "#text" = " " }
++    }
++  }
++
++(* Test: ActiveMQ_XML.lns  
++ * Put test changing transport connector to localhost
++*)
++test lns put conf after set "/beans/broker/transportConnectors/transportConnector/#attribute/uri" "tcp://127.0.0.1:61616" = new_conf
++
++(* vim: set ts=4  expandtab  sw=4: *)
+diff --git a/lenses/tests/test_jettyrealm.aug b/lenses/tests/test_jettyrealm.aug
+new file mode 100644
+index 0000000..620ffa3
+--- /dev/null
++++ b/lenses/tests/test_jettyrealm.aug
+@@ -0,0 +1,51 @@
++(*
++Module: Test_JettyRealm
++  Provides unit tests and examples for the <JettyRealm> lens.
++*)
++
++module Test_JettyRealm =
++
++(* Variable: conf *)
++let conf = "### Comment
++admin: admin, admin
++"
++
++(* Variable: conf_norealm *)
++let conf_norealm = "### Comment
++admin: admin
++"
++
++(* Variable: new_conf *) 
++let new_conf = "### Comment
++admin: password, admin
++"
++
++let lns = JettyRealm.lns 
++
++(* Test: JettyRealm.lns  
++ * Get test against tree structure
++*)
++test lns get conf = 
++  { "#comment" = "## Comment" }
++  { "user" 
++    { "username" = "admin" }
++    { "password" = "admin" }
++    { "realm" = "admin" }
++  }
++
++(* Test: JettyRealm.lns  
++ * Get test against tree structure without a realm
++*)
++test lns get conf_norealm = 
++  { "#comment" = "## Comment" }
++  { "user" 
++    { "username" = "admin" }
++    { "password" = "admin" }
++  }
++
++(* Test: JettyRealm.lns  
++ * Put test changing password to password
++*)
++test lns put conf after set "/user/password" "password" = new_conf
++
++(* vim: set ts=4  expandtab  sw=4: *)
+diff --git a/lenses/tests/test_jmxaccess.aug b/lenses/tests/test_jmxaccess.aug
+new file mode 100644
+index 0000000..14e095e
+--- /dev/null
++++ b/lenses/tests/test_jmxaccess.aug
+@@ -0,0 +1,35 @@
++(*
++Module: Test_JMXAccess
++  Provides unit tests and examples for the <JMXAccess> lens.
++*)
++
++module Test_JMXAccess =
++
++(* Variable: conf *)
++let conf = "# Comment
++admin readwrite
++"
++
++(* Variable: new_conf *) 
++let new_conf = "# Comment
++admin readonly
++" 
++
++let lns = JMXAccess.lns 
++
++(* Test: JMXAccess.lns  
++ * Get test against tree structure
++*)
++test lns get conf = 
++  { "#comment" = "Comment" }
++  { "user" 
++    { "username" = "admin" }
++    { "access" = "readwrite" }
++  }
++
++(* Test: JMXAccess.lns  
++ * Put test changing access to readonly
++*)
++test lns put conf after set "/user/access" "readonly" = new_conf
++
++(* vim: set ts=4  expandtab  sw=4: *)
+diff --git a/lenses/tests/test_jmxpassword.aug b/lenses/tests/test_jmxpassword.aug
+new file mode 100644
+index 0000000..5365162
+--- /dev/null
++++ b/lenses/tests/test_jmxpassword.aug
+@@ -0,0 +1,35 @@
++(*
++Module: Test_JMXPassword
++  Provides unit tests and examples for the <JMXPassword> lens.
++*)
++
++module Test_JMXPassword =
++
++(* Variable: conf *)
++let conf = "# Comment
++admin activemq
++"
++
++(* Variable: new_conf *) 
++let new_conf = "# Comment
++admin password
++" 
++
++let lns = JMXPassword.lns 
++
++(* Test: JMXPassword.lns  
++ * Get test against tree structure
++*)
++test lns get conf = 
++  { "#comment" = "Comment" }
++  { "user" 
++    { "username" = "admin" }
++    { "password" = "activemq" }
++  }
++
++(* Test: JMXPassword.lns  
++ * Put test changing password to password
++*)
++test lns put conf after set "/user/password" "password" = new_conf
++
++(* vim: set ts=4  expandtab  sw=4: *)
+diff --git a/tests/Makefile.am b/tests/Makefile.am
+index bd1bb85..43d4b74 100644
+--- a/tests/Makefile.am
++++ b/tests/Makefile.am
+@@ -18,6 +18,8 @@ valgrind-leak: leak
+ lens_tests =			\
+   lens-sudoers.sh		\
+   lens-access.sh		\
++  lens-activemq_conf.sh		\
++  lens-activemq_xml.sh		\
+   lens-aliases.sh		\
+   lens-anacron.sh		\
+   lens-approx.sh		\
+@@ -76,6 +78,9 @@ lens_tests =			\
+   lens-inputrc.sh		\
+   lens-interfaces.sh		\
+   lens-iptables.sh		\
++  lens-jettyrealm.sh		\
++  lens-jmxaccess.sh		\
++  lens-jmxpassword.sh		\
+   lens-kdump.sh			\
+   lens-keepalived.sh	\
+   lens-krb5.sh			\

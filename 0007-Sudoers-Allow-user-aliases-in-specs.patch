@@ -1,0 +1,42 @@
+From 8438e06f62a4aab53e159774f40c0f23b4be8f42 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Rapha=C3=ABl=20Pinson?= <raphael.pinson@camptocamp.com>
+Date: Wed, 2 Jan 2013 14:23:26 +0100
+Subject: [PATCH] Sudoers: Allow user aliases in specs
+
+(cherry picked from commit c9520b360ea9cca595efd44f22d6b84e8a13e0a2)
+---
+ lenses/sudoers.aug            | 3 ++-
+ lenses/tests/test_sudoers.aug | 9 +++++++++
+ 2 files changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/lenses/sudoers.aug b/lenses/sudoers.aug
+index 6f54c81..4c4b5c3 100644
+--- a/lenses/sudoers.aug
++++ b/lenses/sudoers.aug
+@@ -106,7 +106,8 @@ Escaped spaces and NIS domains and allowed*)
+ let sto_to_com_user =
+       let nis_re = /([A-Z]([-A-Z0-9]|(\\\\[ \t]))*+\\\\\\\\)/
+    in let user_re = /[%+@a-z]([-a-z0-9]|(\\\\[ \t]))*/
+-   in store (nis_re? . user_re)
++   in let alias_re = /[A-Z_]+/
++   in store ((nis_re? . user_re) | alias_re)
+ 
+ (* Variable: to_com_dquot *)
+ let to_com_chars        = /[^",=#() \t\n\\]+/ (* " relax emacs *)
+diff --git a/lenses/tests/test_sudoers.aug b/lenses/tests/test_sudoers.aug
+index 8de27d6..b355655 100644
+--- a/lenses/tests/test_sudoers.aug
++++ b/lenses/tests/test_sudoers.aug
+@@ -264,3 +264,12 @@ test Sudoers.lns get defaults_spaces =
+     { "passprompt" = "\"Your SecurID Passcode: \"" }
+   }
+ 
++
++(* Test: Sudoers.spec
++     Spec users can be aliases *)
++test Sudoers.spec get "APACHE_ADMIN ALL= ALL\n" =
++  { "spec"
++    { "user" = "APACHE_ADMIN" }
++    { "host_group"
++      { "host" = "ALL" }
++      { "command" = "ALL" } } }

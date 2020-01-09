@@ -1,0 +1,57 @@
+From 5f4fb4869111e7325e67d98404713f0967c5733b Mon Sep 17 00:00:00 2001
+From: Dominic Cleal <dcleal@redhat.com>
+Date: Mon, 2 Jun 2014 13:25:09 +0100
+Subject: [PATCH] Ldso: handle "hwcap" lines
+
+Fixes #100
+
+(cherry picked from commit a8bd97a2a336319220eab92268ccb3029627ae86)
+
+Conflicts:
+	NEWS
+---
+ lenses/ldso.aug            | 8 +++++++-
+ lenses/tests/test_ldso.aug | 6 ++++++
+ 2 files changed, 13 insertions(+), 1 deletion(-)
+
+diff --git a/lenses/ldso.aug b/lenses/ldso.aug
+index ef0ee4c..d362573 100644
+--- a/lenses/ldso.aug
++++ b/lenses/ldso.aug
+@@ -27,8 +27,14 @@ let path = [ label "path" . store /[^# \t\n][^ \t\n]*/ . Util.eol ]
+ (* View: include *)
+ let include = Build.key_value_line "include" Sep.space (store Rx.fspath)
+ 
++(* View: hwcap *)
++let hwcap =
++    let hwcap_val = [ label "bit" . store Rx.integer ] . Sep.space .
++                      [ label "name" . store Rx.word ]
++  in Build.key_value_line "hwcap" Sep.space hwcap_val
++
+ (* View: lns *)
+-let lns = (Util.empty | Util.comment | path | include)*
++let lns = (Util.empty | Util.comment | path | include | hwcap)*
+ 
+ (* Variable: filter *)
+ let filter = incl "/etc/ld.so.conf"
+diff --git a/lenses/tests/test_ldso.aug b/lenses/tests/test_ldso.aug
+index 5270f25..70ee07d 100644
+--- a/lenses/tests/test_ldso.aug
++++ b/lenses/tests/test_ldso.aug
+@@ -10,6 +10,8 @@ let conf = "include /etc/ld.so.conf.d/*.conf
+ 
+ # libc default configuration
+ /usr/local/lib
++
++hwcap 1 nosegneg
+ "
+ 
+ (* Test: Ldso.lns *)
+@@ -18,3 +20,7 @@ test Ldso.lns get conf =
+    { }
+    { "#comment" = "libc default configuration" }
+    { "path" = "/usr/local/lib" }
++   { }
++   { "hwcap"
++     { "bit" = "1" }
++     { "name" = "nosegneg" } }

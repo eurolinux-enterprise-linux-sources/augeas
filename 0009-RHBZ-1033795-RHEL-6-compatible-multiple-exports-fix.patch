@@ -1,0 +1,38 @@
+From 2060fea23f2c5dca5928759694497e02f9a7ccfc Mon Sep 17 00:00:00 2001
+From: Dominic Cleal <dcleal@redhat.com>
+Date: Wed, 18 Dec 2013 14:23:52 +0000
+Subject: [PATCH] RHBZ#1033795 - RHEL 6 compatible multiple exports fix
+
+---
+ lenses/shellvars.aug            | 2 +-
+ lenses/tests/test_shellvars.aug | 4 ++++
+ 2 files changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/lenses/shellvars.aug b/lenses/shellvars.aug
+index dbb5d12..d19d0a4 100644
+--- a/lenses/shellvars.aug
++++ b/lenses/shellvars.aug
+@@ -64,7 +64,7 @@ module Shellvars =
+ 
+   let var_action (name:string) =
+     [ Util.indent . xchgs name ("@" . name) . Util.del_ws_spc
+-    . store (key_re | matching_re) . comment_or_eol ]
++    . store ((key_re . (/[ \t]+/ . key_re)*) | matching_re) . comment_or_eol ]
+ 
+   let unset = var_action "unset"
+   let bare_export = var_action "export"
+diff --git a/lenses/tests/test_shellvars.aug b/lenses/tests/test_shellvars.aug
+index 9aea433..2b73111 100644
+--- a/lenses/tests/test_shellvars.aug
++++ b/lenses/tests/test_shellvars.aug
+@@ -435,6 +435,10 @@ esac\n" =
+     { "#comment" = "foo" }
+     { "foo" = "bar" }
+ 
++  (* Export of multiple variables, RHBZ#1033795 *)
++  test lns get "export TestVar1 TestVar2\n" =
++    { "@export" = "TestVar1 TestVar2" }
++
+ (* Local Variables: *)
+ (* mode: caml       *)
+ (* End:             *)

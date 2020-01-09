@@ -1,0 +1,245 @@
+From 2124d3ee72bd0caa65e25f2dfd13581a4797f535 Mon Sep 17 00:00:00 2001
+From: Francis Giraldeau <francis.giraldeau@gmail.com>
+Date: Wed, 27 Mar 2013 15:14:48 -0400
+Subject: [PATCH] Add Splunk lens
+
+Lens to parse Splunk configuration. Based on IniFile lens, with few differences:
+
+* Accepts empty value in entry
+* Entries without parent section are children of .anon node
+
+Thanks to Tim Brigham for this contribution.
+
+Signed-off-by: Francis Giraldeau <francis.giraldeau@gmail.com>
+(cherry picked from commit b64ee52dbcc5c5fdfd31f3a6bf13f33d98f2e809)
+---
+ lenses/splunk.aug            |  41 +++++++++++
+ lenses/tests/test_splunk.aug | 158 +++++++++++++++++++++++++++++++++++++++++++
+ tests/Makefile.am            |   1 +
+ 3 files changed, 200 insertions(+)
+ create mode 100644 lenses/splunk.aug
+ create mode 100644 lenses/tests/test_splunk.aug
+
+diff --git a/lenses/splunk.aug b/lenses/splunk.aug
+new file mode 100644
+index 0000000..03fbff1
+--- /dev/null
++++ b/lenses/splunk.aug
+@@ -0,0 +1,41 @@
++(*
++Module: Splunk
++  Parses /opt/splunk/etc/*
++
++Author: Tim Brigham
++
++About: Reference
++  http://docs.splunk.com/Documentation/Splunk/5.0.2/Admin/AboutConfigurationFiles
++
++About: License
++   This file is licenced under the LGPL v2+
++
++About: Lens Usage
++   Works like IniFile lens, with anonymous section for entries without enclosing section.
++
++About: Configuration files
++   This lens applies to conf files under /opt/splunk/etc See <filter>.
++
++About: Examples
++   The <Test_Splunk> file contains various examples and tests.
++*)
++
++module Splunk =
++  autoload xfm
++
++  let comment   = IniFile.comment IniFile.comment_re IniFile.comment_default
++  let sep       = IniFile.sep IniFile.sep_re IniFile.sep_default
++  let empty     = IniFile.empty
++
++  let setting   = IniFile.entry_re
++  let title     =  IniFile.indented_title_label "target" IniFile.record_label_re
++  let entry     = [ key IniFile.entry_re . sep . IniFile.sto_to_eol? . IniFile.eol ] | comment
++
++
++  let record    = IniFile.record title entry
++  let anon      = [ label ".anon" . (entry|empty)+ ]
++  let lns       = anon . (record)* | (record)*
++
++  let filter    = incl "/opt/splunk/etc/system/local/*.conf"
++                . incl "/opt/splunk/etc/apps/*/local/*.conf"
++  let xfm       = transform lns filter
+diff --git a/lenses/tests/test_splunk.aug b/lenses/tests/test_splunk.aug
+new file mode 100644
+index 0000000..fc240d6
+--- /dev/null
++++ b/lenses/tests/test_splunk.aug
+@@ -0,0 +1,158 @@
++(**
++ *
++ * This module is used to test the Splunk module for valid extractions.
++ * Written by Tim Brigham.
++ * This file is licensed under the LGPLv2+, like the rest of Augeas.
++ **)
++
++module Test_splunk =
++
++(** inputs.conf **)
++
++   let inputs = "[default]
++host = splunk-node-1.example.com
++enable_autocomplete_login = False
++
++[udp://514]
++connection_host = none
++source = test
++sourcetype = syslog
++
++"
++test Splunk.lns get inputs =
++  { "target" = "default"
++      { "host" = "splunk-node-1.example.com" }
++      { "enable_autocomplete_login" = "False" }
++  {}}
++  { "target" = "udp://514"
++      { "connection_host" = "none" }
++      { "source" = "test" }
++      { "sourcetype" = "syslog" }
++  {}}
++
++
++(** web.conf **)
++   let web = "[settings]
++enableSplunkWebSSL = 1
++enable_autocomplete_login = False
++"
++
++
++test Splunk.lns get web =
++  { "target" = "settings"
++      { "enableSplunkWebSSL" = "1" }
++      { "enable_autocomplete_login" = "False" }
++      }
++
++
++
++(** props.conf **)
++
++   let props = "[splunkd_stdout]
++PREFIX_SOURCETYPE = False
++SHOULD_LINEMERGE = False
++is_valid = False
++maxDist = 99
++
++"
++
++test Splunk.lns get props =
++  {
++    "target" = "splunkd_stdout"
++             { "PREFIX_SOURCETYPE" = "False" }
++             { "SHOULD_LINEMERGE" = "False" }
++             { "is_valid" = "False" }
++             { "maxDist" = "99" }
++             {}}
++
++(** tenants.conf **)
++   let tenants = "[tenant:default]
++whitelist.0 = *
++"
++
++test Splunk.lns get tenants =
++  { "target" = "tenant:default"
++     { "whitelist.0" = "*" }
++  }
++
++
++
++  let server = "[license]
++active_group = Free
++master_uri = https://myserver.mydomain.com:8089
++
++[general]
++serverName = splunk-node-1
++trustedIP = 127.0.0.1
++guid = XXXXXXX-XXXXXXX-XXXXXXX-XXXXXXX-XXXXXXXXXXXXX
++
++[sslConfig]
++sslKeysfilePassword = $1$XX2X4XX6XXXXXXXXX
++
++"
++
++test Splunk.lns get server =
++    { "target" = "license"
++        { "active_group" = "Free" }
++        { "master_uri" = "https://myserver.mydomain.com:8089" }
++        {}}
++    { "target" = "general"
++      { "serverName" = "splunk-node-1" }
++      { "trustedIP" = "127.0.0.1" }
++      { "guid" = "XXXXXXX-XXXXXXX-XXXXXXX-XXXXXXX-XXXXXXXXXXXXX" }
++      {}}
++    { "target" = "sslConfig"
++      { "sslKeysfilePassword" = "$1$XX2X4XX6XXXXXXXXX" }
++      {}}
++
++
++(* test anonymous attributes *)
++let anon = "
++# master
++serverName = splunk-node-1
++
++# slave
++serverName = splunk-node-2
++
++[general]
++serverName = splunk-node-3
++
++"
++
++test Splunk.lns get anon =
++  { ".anon"
++    {  }
++    { "#comment" = "master" }
++    { "serverName" = "splunk-node-1" }
++    {  }
++    { "#comment" = "slave" }
++    { "serverName" = "splunk-node-2" }
++    {  }
++  }
++  { "target" = "general"
++    { "serverName" = "splunk-node-3" }
++    {  }
++  }
++
++
++(* test empty value entry *)
++
++let override = "
++[general]
++# normal entry
++foo = bar
++# override entry
++foo =
++"
++
++test Splunk.lns get override =
++  { ".anon"
++    {  }
++  }
++  { "target" = "general"
++    { "#comment" = "normal entry" }
++    { "foo" = "bar" }
++    { "#comment" = "override entry" }
++    { "foo" }
++  }
++
+diff --git a/tests/Makefile.am b/tests/Makefile.am
+index 43d4b74..82d5ba3 100644
+--- a/tests/Makefile.am
++++ b/tests/Makefile.am
+@@ -155,6 +155,7 @@ lens_tests =			\
+   lens-solaris_system.sh		\
+   lens-soma.sh			\
+   lens-spacevars.sh		\
++  lens-splunk.sh		\
+   lens-squid.sh			\
+   lens-ssh.sh			\
+   lens-sshd.sh			\

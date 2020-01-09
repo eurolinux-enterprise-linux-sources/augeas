@@ -1,0 +1,49 @@
+From 96928086cceb372bb96cfb503d0ea8efa8afe7d2 Mon Sep 17 00:00:00 2001
+From: Dominic Cleal <dcleal@redhat.com>
+Date: Wed, 4 Jun 2014 11:06:06 +0100
+Subject: [PATCH] * man/augtool.pod: fix description of 'move' alias
+
+(cherry picked from commit b722715c13fc2ab5c94213f07112303b82672111)
+
+Conflicts:
+	man/augtool.1
+---
+ man/augtool.1   | 4 ++--
+ man/augtool.pod | 2 +-
+ 2 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/man/augtool.1 b/man/augtool.1
+index f5531fa..15958f9 100644
+--- a/man/augtool.1
++++ b/man/augtool.1
+@@ -133,7 +133,7 @@
+ .\" ========================================================================
+ .\"
+ .IX Title "AUGTOOL 1"
+-.TH AUGTOOL 1 "2014-06-03" "Augeas 1.0.0" "Augeas"
++.TH AUGTOOL 1 "2014-06-13" "Augeas 1.0.0" "Augeas"
+ .\" For nroff, turn off justification.  Always turn off hyphenation; it makes
+ .\" way too many mistakes in technical documents.
+ .if n .ad l
+@@ -318,7 +318,7 @@ must either match exactly one node in the tree, or may not exist yet. If
+ exist yet, it and all its missing ancestors are created.
+ .IP "\fBmove\fR <\s-1SRC\s0> <\s-1DST\s0>" 4
+ .IX Item "move <SRC> <DST>"
+-Alias of \fBmove\fR.
++Alias of \fBmv\fR.
+ .IP "\fBrename\fR <\s-1SRC\s0> <\s-1LBL\s0>" 4
+ .IX Item "rename <SRC> <LBL>"
+ Rename the label of all nodes matching \s-1SRC\s0 to \s-1LBL.\s0
+diff --git a/man/augtool.pod b/man/augtool.pod
+index 4940b38..053bb9a 100644
+--- a/man/augtool.pod
++++ b/man/augtool.pod
+@@ -233,7 +233,7 @@ exist yet, it and all its missing ancestors are created.
+ 
+ =item B<move> E<lt>SRCE<gt> E<lt>DSTE<gt>
+ 
+-Alias of B<move>.
++Alias of B<mv>.
+ 
+ =item B<rename> E<lt>SRCE<gt> E<lt>LBLE<gt>
+ 

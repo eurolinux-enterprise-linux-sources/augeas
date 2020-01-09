@@ -1,0 +1,28 @@
+From a32809b453b127a3496984199904d4ef6b229012 Mon Sep 17 00:00:00 2001
+From: Dominic Cleal <dcleal@redhat.com>
+Date: Mon, 2 Jun 2014 13:35:30 +0100
+Subject: [PATCH] * src/augtool.c: add command aliases to autocomplete
+
+Fixes RHBZ#1100184
+
+(cherry picked from commit 0d540378e3e319607a078bcce520dd74e2f71013)
+
+Conflicts:
+	NEWS
+---
+ src/augtool.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/augtool.c b/src/augtool.c
+index a673c3c..4e1af84 100644
+--- a/src/augtool.c
++++ b/src/augtool.c
+@@ -171,7 +171,7 @@ static char *readline_command_generator(const char *text, int state) {
+         "get", "label", "ins", "load", "ls", "match",
+         "mv", "rename", "print", "dump-xml", "rm", "save", "set", "setm",
+         "clearm", "span", "store", "retrieve", "transform",
+-        "help", NULL };
++        "help", "touch", "insert", "move", NULL };
+ 
+     static int current = 0;
+     const char *name;

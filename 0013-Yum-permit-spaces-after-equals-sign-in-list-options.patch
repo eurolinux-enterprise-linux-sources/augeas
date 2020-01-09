@@ -1,0 +1,50 @@
+From 9c59e48a9f8c03e39c969d4a7ffc97c5bc0628ad Mon Sep 17 00:00:00 2001
+From: Dominic Cleal <dcleal@redhat.com>
+Date: Sat, 9 Nov 2013 12:33:00 +0000
+Subject: [PATCH] Yum: permit spaces after equals sign in list options
+
+Fixes GitHub issue #45
+
+(cherry picked from commit deb73b5f284db09e3c63f2d7698ab140e2337a3d)
+
+Conflicts:
+	lenses/yum.aug
+---
+ lenses/tests/test_yum.aug | 10 ++++++++++
+ lenses/yum.aug            |  2 +-
+ 2 files changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/lenses/tests/test_yum.aug b/lenses/tests/test_yum.aug
+index f6a8d82..91a5629 100644
+--- a/lenses/tests/test_yum.aug
++++ b/lenses/tests/test_yum.aug
+@@ -196,6 +196,16 @@ gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-remi
+       Check that we can parse an empty line, to fix test-save *)
+   test Yum.lns get "\n" = { }
+ 
++  (* Test: Yum.lns
++       Issue #45: allow spaces around equals sign *)
++  test Yum.lns get "[rpmforge]
++name = RHEL $releasever - RPMforge.net - dag
++baseurl = http://apt.sw.be/redhat/el6/en/$basearch/rpmforge\n" =
++    { "rpmforge"
++      { "name" = "RHEL $releasever - RPMforge.net - dag" }
++      { "baseurl" = "http://apt.sw.be/redhat/el6/en/$basearch/rpmforge" }
++    }
++
+ (* Local Variables: *)
+ (* mode: caml       *)
+ (* End:             *)
+diff --git a/lenses/yum.aug b/lenses/yum.aug
+index 03c702e..bd167f7 100644
+--- a/lenses/yum.aug
++++ b/lenses/yum.aug
+@@ -19,7 +19,7 @@ let eol      = IniFile.eol
+ let list_entry (list_key:string)  =
+   let list_value = store /[^# \t\n,][^ \t\n,]*[^# \t\n,]|[^# \t\n,]/ in
+   let list_sep = del /([ \t]*(,[ \t]*|\n[ \t]+))|[ \t]+/ "\n\t" in
+-  [ key list_key . sep . list_value ]
++  [ key list_key . sep . Sep.opt_space . list_value ]
+   . (list_sep . Build.opt_list [ label list_key . list_value ] list_sep)?
+   . eol
+ 

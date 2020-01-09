@@ -1,0 +1,50 @@
+From 6ac6ded4d544e28bce435021304c7370f682c03b Mon Sep 17 00:00:00 2001
+From: Matteo Cerutti <matteo.cerutti@hotmail.co.uk>
+Date: Fri, 8 Nov 2013 17:08:22 +0000
+Subject: [PATCH] Sudoers: permit underscores in group names
+
+Fixes ticket #370
+
+(cherry picked from commit 61e3c313c016f8dad28b6602a61719514272bfbc)
+
+Conflicts:
+	lenses/sudoers.aug
+	lenses/tests/test_sudoers.aug
+---
+ lenses/sudoers.aug            |  2 +-
+ lenses/tests/test_sudoers.aug | 12 ++++++++++++
+ 2 files changed, 13 insertions(+), 1 deletion(-)
+
+diff --git a/lenses/sudoers.aug b/lenses/sudoers.aug
+index 4c4b5c3..bae8390 100644
+--- a/lenses/sudoers.aug
++++ b/lenses/sudoers.aug
+@@ -105,7 +105,7 @@ let sto_to_com_host = store /[^,=:#() \t\n\\]+/
+ Escaped spaces and NIS domains and allowed*)
+ let sto_to_com_user =
+       let nis_re = /([A-Z]([-A-Z0-9]|(\\\\[ \t]))*+\\\\\\\\)/
+-   in let user_re = /[%+@a-z]([-a-z0-9]|(\\\\[ \t]))*/
++   in let user_re = /[%+@a-z]([-a-z0-9_]|(\\\\[ \t]))*/
+    in let alias_re = /[A-Z_]+/
+    in store ((nis_re? . user_re) | alias_re)
+ 
+diff --git a/lenses/tests/test_sudoers.aug b/lenses/tests/test_sudoers.aug
+index b355655..94408ee 100644
+--- a/lenses/tests/test_sudoers.aug
++++ b/lenses/tests/test_sudoers.aug
+@@ -273,3 +273,15 @@ test Sudoers.spec get "APACHE_ADMIN ALL= ALL\n" =
+     { "host_group"
+       { "host" = "ALL" }
+       { "command" = "ALL" } } }
++
++(* Test: Sudoers.spec
++     Ticket #370: allow underscore in group names *)
++test Sudoers.spec get "%sudo_users ALL=(ALL) ALL\n" =
++  { "spec"
++    { "user" = "%sudo_users" }
++    { "host_group"
++      { "host" = "ALL" }
++      { "command" = "ALL"
++        { "runas_user" = "ALL" } }
++    }
++  }

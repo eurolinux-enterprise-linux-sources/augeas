@@ -1,0 +1,24 @@
+From 5d5d7e871ffb822128a688ec206a5893ee1acbb6 Mon Sep 17 00:00:00 2001
+From: Miguel Armas <kuko@canarytek.com>
+Date: Thu, 30 Jan 2014 09:23:27 +0000
+Subject: [PATCH] Grub: handle "foreground" option
+
+Fixes RHBZ#1059383
+
+(cherry picked from commit a370d9ccfbd0b6b6f927880014b29569c58b03c0)
+---
+ lenses/grub.aug | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/lenses/grub.aug b/lenses/grub.aug
+index 4ac2738..d1afac3 100644
+--- a/lenses/grub.aug
++++ b/lenses/grub.aug
+@@ -145,6 +145,7 @@ module Grub =
+                      | kw_menu_arg "timeout"
+                      | kw_menu_arg "splashimage"
+                      | kw_menu_arg "gfxmenu"
++                     | kw_menu_arg "foreground"
+                      | kw_menu_arg "background"
+                      | serial
+                      | terminal
