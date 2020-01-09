@@ -94,14 +94,14 @@ index 5f2bfb13..d5ede698 100644
  };"
  
  test Jaas.lns get conf =
-@@ -90,6 +90,7 @@ test Jaas.lns get conf =
+@@ -89,6 +89,7 @@ test Jaas.lns get conf =
+   {  }
    {  }
    { "login" = "ShibUserPassAuth"
-     {  }
 +    {  }
+     {  }
      { "#comment" = "Example LDAP authentication" }
      { "#comment" = "See: https://wiki.shibboleth.net/confluence/display/SHIB2/IdPAuthUserPass" }
-     { "#mcomment"
 @@ -116,29 +117,27 @@ test Jaas.lns get conf =
          { "serviceCredential" = "\"ldappassword\"" }
          { "ssl" = "\"false\"" }
@@ -139,5 +139,5 @@ index 5f2bfb13..d5ede698 100644
 -    {  }
    }
 -- 
-2.13.6
+2.14.3
 
