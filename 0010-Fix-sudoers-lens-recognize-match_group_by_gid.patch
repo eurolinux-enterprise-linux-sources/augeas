@@ -1,0 +1,29 @@
+From 9a65d8e4a428f05e392658fac498ea99d3b3405f Mon Sep 17 00:00:00 2001
+From: Luigi Toscano <ltoscano@redhat.com>
+Date: Thu, 24 Aug 2017 16:21:49 +0200
+Subject: [PATCH] Fix sudoers lens: recognize "match_group_by_gid"
+
+The option is now enabled by default in the default sudoers of
+RHEL 7.4 (and probably soon CentOS 7).
+
+Closes #482
+---
+ lenses/sudoers.aug | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/lenses/sudoers.aug b/lenses/sudoers.aug
+index 7567772d..0437daae 100644
+--- a/lenses/sudoers.aug
++++ b/lenses/sudoers.aug
+@@ -307,7 +307,7 @@ let parameter_flag_kw    = "always_set_home" | "authenticate" | "env_editor"
+                          | "tty_tickets" | "visiblepw" | "closefrom_override"
+                          | "closefrom_override" | "compress_io" | "fast_glob"
+                          | "log_input" | "log_output" | "pwfeedback"
+-                         | "umask_override" | "use_pty"
++                         | "umask_override" | "use_pty" | "match_group_by_gid"
+ 
+ let parameter_flag       = [ del_negate . negate_node?
+                                . key parameter_flag_kw ]
+-- 
+2.13.6
+

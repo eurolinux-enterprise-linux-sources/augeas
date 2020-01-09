@@ -1,0 +1,52 @@
+From deae1ee7eafff09b983ba7b9bcb7e59df92a5cea Mon Sep 17 00:00:00 2001
+From: Miroslav Lichvar <mlichvar@redhat.com>
+Date: Wed, 3 Jun 2015 17:31:07 +0200
+Subject: [PATCH] Chrony: allow signed numbers
+
+---
+ lenses/chrony.aug            | 4 ++--
+ lenses/tests/test_chrony.aug | 4 ++--
+ 2 files changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/lenses/chrony.aug b/lenses/chrony.aug
+index 32575688..5e30ee1f 100644
+--- a/lenses/chrony.aug
++++ b/lenses/chrony.aug
+@@ -50,10 +50,10 @@ module Chrony =
+     let word       = Rx.word
+ 
+     (* Variable: integer *)
+-    let integer    = Rx.integer
++    let integer    = Rx.relinteger
+ 
+     (* Variable: decimal *)
+-    let decimal    = Rx.decimal
++    let decimal    = Rx.reldecimal
+ 
+     (* Variable: ip *)
+     let ip         = Rx.ip
+diff --git a/lenses/tests/test_chrony.aug b/lenses/tests/test_chrony.aug
+index c4b552eb..905ecee4 100644
+--- a/lenses/tests/test_chrony.aug
++++ b/lenses/tests/test_chrony.aug
+@@ -25,7 +25,7 @@ peer ntpc1.example.com
+ stratumweight 0
+ driftfile /var/lib/chrony/drift
+ rtcsync
+-makestep 10 3
++makestep 10 -1
+ bindcmdaddress 127.0.0.1
+ bindcmdaddress ::1
+ local stratum 10
+@@ -87,7 +87,7 @@ initstepslew 30 foo.bar.com baz.quz.com
+   { "rtcsync" }
+   { "makestep"
+     { "threshold" = "10" }
+-    { "limit" = "3" }
++    { "limit" = "-1" }
+   }
+   { "bindcmdaddress" = "127.0.0.1" }
+   { "bindcmdaddress" = "::1" }
+-- 
+2.13.6
+

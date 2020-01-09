@@ -1,0 +1,258 @@
+From a90c028eae871422588037ea1a21aff080f77fd2 Mon Sep 17 00:00:00 2001
+From: Dominic Cleal <dcleal@redhat.com>
+Date: Fri, 3 Jul 2015 12:05:30 +0100
+Subject: [PATCH] Rhsm: new lens to parse subscription-manager's rhsm.conf
+
+(cherry picked from commit abdb9fbc4e8c0975f51a62e34ee2e22ed2d5c39f)
+
+Conflicts:
+	NEWS
+---
+ doc/naturaldocs/conf/lenses/Menu.txt |   2 +
+ lenses/rhsm.aug                      |  42 ++++++++++
+ lenses/tests/test_rhsm.aug           | 151 +++++++++++++++++++++++++++++++++++
+ tests/Makefile.am                    |   1 +
+ 4 files changed, 196 insertions(+)
+ create mode 100644 lenses/rhsm.aug
+ create mode 100644 lenses/tests/test_rhsm.aug
+
+diff --git a/doc/naturaldocs/conf/lenses/Menu.txt b/doc/naturaldocs/conf/lenses/Menu.txt
+index c245446b..e74cd13a 100644
+--- a/doc/naturaldocs/conf/lenses/Menu.txt
++++ b/doc/naturaldocs/conf/lenses/Menu.txt
+@@ -151,6 +151,7 @@ Group: Specific Modules  {
+    File: Redis  (redis.aug)
+    File: Reprepro_Uploaders  (reprepro_uploaders.aug)
+    File: Resolv  (resolv.aug)
++   File: Rhsm  (rhsm.aug)
+    File: Rmt  (rmt.aug)
+    File: Rsyslog  (rsyslog.aug)
+    File: Schroot  (schroot.aug)
+@@ -261,6 +262,7 @@ Group: Tests and Examples  {
+    File: Test_Rabbitmq  (tests/test_rabbitmq.aug)
+    File: Test_Redis  (tests/test_redis.aug)
+    File: Test_Reprepro_Uploaders  (tests/test_reprepro_uploaders.aug)
++   File: Test_Rhsm  (tests/test_rhsm.aug)
+    File: Test_Rmt  (tests/test_rmt.aug)
+    File: Test_Rsyslog  (tests/test_rsyslog.aug)
+    File: Test_Simplelines  (tests/test_simplelines.aug)
+diff --git a/lenses/rhsm.aug b/lenses/rhsm.aug
+new file mode 100644
+index 00000000..56cc82ea
+--- /dev/null
++++ b/lenses/rhsm.aug
+@@ -0,0 +1,42 @@
++(*
++Module: Rhsm
++  Parses subscription-manager config files
++
++Author: Dominic Cleal <dcleal@redhat.com>
++
++About: Reference
++  This lens tries to keep as close as possible to rhsm.conf(5) and
++  Python's SafeConfigParser.  All settings must be in sections without
++  indentation.  Semicolons and hashes are permitted for comments.
++
++About: License
++  This file is licenced under the LGPL v2+, like the rest of Augeas.
++
++About: Lens Usage
++  To be documented
++
++About: Configuration files
++  This lens applies to:
++    /etc/rhsm/rhsm.conf
++
++  See <filter>.
++*)
++
++module Rhsm =
++  autoload xfm
++
++(* Semicolons and hashes are permitted for comments *)
++let comment = IniFile.comment IniFile.comment_re "#"
++(* Equals and colons are permitted for separators *)
++let sep     = IniFile.sep IniFile.sep_re IniFile.sep_default
++
++(* All settings must be in sections without indentation *)
++let entry   = IniFile.entry_multiline IniFile.entry_re sep comment
++let title   = IniFile.title IniFile.record_re
++let record  = IniFile.record title entry
++
++let lns     = IniFile.lns record comment
++
++let filter  = incl "/etc/rhsm/rhsm.conf"
++
++let xfm     = transform lns filter
+diff --git a/lenses/tests/test_rhsm.aug b/lenses/tests/test_rhsm.aug
+new file mode 100644
+index 00000000..219a5be7
+--- /dev/null
++++ b/lenses/tests/test_rhsm.aug
+@@ -0,0 +1,151 @@
++(*
++Module: Test_Rhsm
++  Provides unit tests and examples for the <Rhsm> lens.
++*)
++
++module Test_rhsm =
++
++  (* Variable: conf
++     A full rhsm.conf *)
++  let conf = "# Red Hat Subscription Manager Configuration File:
++
++# Unified Entitlement Platform Configuration
++[server]
++# Server hostname:
++hostname = subscription.rhn.redhat.com
++
++# Server prefix:
++prefix = /subscription
++
++# Server port:
++port = 443
++
++# Set to 1 to disable certificate validation:
++insecure = 0
++
++# Set the depth of certs which should be checked
++# when validating a certificate
++ssl_verify_depth = 3
++
++# an http proxy server to use
++proxy_hostname =
++
++# port for http proxy server
++proxy_port =
++
++# user name for authenticating to an http proxy, if needed
++proxy_user =
++
++# password for basic http proxy auth, if needed
++proxy_password =
++
++[rhsm]
++# Content base URL:
++baseurl= https://cdn.redhat.com
++
++# Server CA certificate location:
++ca_cert_dir = /etc/rhsm/ca/
++
++# Default CA cert to use when generating yum repo configs:
++repo_ca_cert = %(ca_cert_dir)sredhat-uep.pem
++
++# Where the certificates should be stored
++productCertDir = /etc/pki/product
++entitlementCertDir = /etc/pki/entitlement
++consumerCertDir = /etc/pki/consumer
++
++# Manage generation of yum repositories for subscribed content:
++manage_repos = 1
++
++# Refresh repo files with server overrides on every yum command
++full_refresh_on_yum = 0
++
++# If set to zero, the client will not report the package profile to
++# the subscription management service.
++report_package_profile = 1
++
++# The directory to search for subscription manager plugins
++pluginDir = /usr/share/rhsm-plugins
++
++# The directory to search for plugin configuration files
++pluginConfDir = /etc/rhsm/pluginconf.d
++
++[rhsmcertd]
++# Interval to run cert check (in minutes):
++certCheckInterval = 240
++# Interval to run auto-attach (in minutes):
++autoAttachInterval = 1440
++"
++
++  test Rhsm.lns get conf =
++    { "#comment" = "Red Hat Subscription Manager Configuration File:" }
++    {  }
++    { "#comment" = "Unified Entitlement Platform Configuration" }
++    { "server"
++      { "#comment" = "Server hostname:" }
++      { "hostname" = "subscription.rhn.redhat.com" }
++      {  }
++      { "#comment" = "Server prefix:" }
++      { "prefix" = "/subscription" }
++      {  }
++      { "#comment" = "Server port:" }
++      { "port" = "443" }
++      {  }
++      { "#comment" = "Set to 1 to disable certificate validation:" }
++      { "insecure" = "0" }
++      {  }
++      { "#comment" = "Set the depth of certs which should be checked" }
++      { "#comment" = "when validating a certificate" }
++      { "ssl_verify_depth" = "3" }
++      {  }
++      { "#comment" = "an http proxy server to use" }
++      { "proxy_hostname" }
++      {  }
++      { "#comment" = "port for http proxy server" }
++      { "proxy_port" }
++      {  }
++      { "#comment" = "user name for authenticating to an http proxy, if needed" }
++      { "proxy_user" }
++      {  }
++      { "#comment" = "password for basic http proxy auth, if needed" }
++      { "proxy_password" }
++      {  }
++    }
++    { "rhsm"
++      { "#comment" = "Content base URL:" }
++      { "baseurl" = "https://cdn.redhat.com" }
++      {  }
++      { "#comment" = "Server CA certificate location:" }
++      { "ca_cert_dir" = "/etc/rhsm/ca/" }
++      {  }
++      { "#comment" = "Default CA cert to use when generating yum repo configs:" }
++      { "repo_ca_cert" = "%(ca_cert_dir)sredhat-uep.pem" }
++      {  }
++      { "#comment" = "Where the certificates should be stored" }
++      { "productCertDir" = "/etc/pki/product" }
++      { "entitlementCertDir" = "/etc/pki/entitlement" }
++      { "consumerCertDir" = "/etc/pki/consumer" }
++      {  }
++      { "#comment" = "Manage generation of yum repositories for subscribed content:" }
++      { "manage_repos" = "1" }
++      {  }
++      { "#comment" = "Refresh repo files with server overrides on every yum command" }
++      { "full_refresh_on_yum" = "0" }
++      {  }
++      { "#comment" = "If set to zero, the client will not report the package profile to" }
++      { "#comment" = "the subscription management service." }
++      { "report_package_profile" = "1" }
++      {  }
++      { "#comment" = "The directory to search for subscription manager plugins" }
++      { "pluginDir" = "/usr/share/rhsm-plugins" }
++      {  }
++      { "#comment" = "The directory to search for plugin configuration files" }
++      { "pluginConfDir" = "/etc/rhsm/pluginconf.d" }
++      {  }
++    }
++    { "rhsmcertd"
++      { "#comment" = "Interval to run cert check (in minutes):" }
++      { "certCheckInterval" = "240" }
++      { "#comment" = "Interval to run auto-attach (in minutes):" }
++      { "autoAttachInterval" = "1440" }
++    }
+diff --git a/tests/Makefile.am b/tests/Makefile.am
+index 65d8993e..4d2b2605 100644
+--- a/tests/Makefile.am
++++ b/tests/Makefile.am
+@@ -167,6 +167,7 @@ lens_tests =			\
+   lens-redis.sh		\
+   lens-reprepro_uploaders.sh		\
+   lens-resolv.sh		\
++  lens-rhsm.sh			\
+   lens-rmt.sh			\
+   lens-rsyncd.sh		\
+   lens-rsyslog.sh		\
+-- 
+2.13.6
+

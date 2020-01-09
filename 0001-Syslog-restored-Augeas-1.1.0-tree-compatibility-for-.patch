@@ -1,0 +1,101 @@
+From 706266780350ba61d36ec387dc18e9f4764ed872 Mon Sep 17 00:00:00 2001
+From: Yanis Guenane <yguenane@gmail.com>
+Date: Sun, 8 Sep 2013 09:30:17 -0400
+Subject: [PATCH] Syslog: restored Augeas 1.1.0 tree compatibility for UDP
+ hosts
+
+UDP host entries don't require the { "protocol" = "@" } node, it's only
+used for TCP hosts.
+---
+ lenses/syslog.aug             | 10 +++++++---
+ lenses/tests/test_rsyslog.aug |  1 -
+ lenses/tests/test_syslog.aug  |  7 +++----
+ 3 files changed, 10 insertions(+), 8 deletions(-)
+
+diff --git a/lenses/syslog.aug b/lenses/syslog.aug
+index f8b99c40..17c0f903 100644
+--- a/lenses/syslog.aug
++++ b/lenses/syslog.aug
+@@ -66,6 +66,10 @@ module Syslog =
+ 	 Deletes a semicolon and default to it
+ 	 *)
+ 	let semicolon  = sep_tab_opt . Util.del_str ";" . sep_tab_opt
++	(* Variable: at
++	 Deletes a at and default to it
++	 *)
++	let at         = Util.del_str "@"
+ 	(* Variable: dot
+ 	 Deletes a dot and default to it
+ 	 *)
+@@ -105,10 +109,10 @@ module Syslog =
+         let comparison = /(!|[<=>]+|![<=>]+)/
+ 
+ 	(* Variable: protocol
+-	  @ means UDP
++	  @ means UDP (removed, no protocol node is used for compatibility with 1.1.0)
+     @@ means TCP
+ 	  *)
+-        let protocol      = /@{1,2}/
++        let protocol      = /@@/
+ 
+ 	(* Variable: token
+ 	  alphanum or "*"
+@@ -185,7 +189,7 @@ module Syslog =
+ 	(* View: loghost
+ 	 a loghost is an @  sign followed by the hostname and a possible port
+ 	 *)
+-	let loghost = [label "protocol" . store protocol] . [ label "hostname" . store loghost_r ] .
++	let loghost = ([label "protocol" . store protocol] | at) . [ label "hostname" . store loghost_r ] .
+ 	    (colon . [ label "port" . store /[0-9]+/ ] )?
+ 
+ 	(* View: users
+diff --git a/lenses/tests/test_rsyslog.aug b/lenses/tests/test_rsyslog.aug
+index e696139c..46b24c3c 100644
+--- a/lenses/tests/test_rsyslog.aug
++++ b/lenses/tests/test_rsyslog.aug
+@@ -86,7 +86,6 @@ test Rsyslog.lns get conf =
+       { "level" = "*" }
+     }
+     { "action"
+-      { "protocol" = "@" }
+       { "hostname" = "2.7.4.1" }
+     }
+   }
+diff --git a/lenses/tests/test_syslog.aug b/lenses/tests/test_syslog.aug
+index 2ad1c165..329d121e 100644
+--- a/lenses/tests/test_syslog.aug
++++ b/lenses/tests/test_syslog.aug
+@@ -91,11 +91,11 @@ daemon.info                                     /var/log/cvsupd.log
+ 	  }
+ 	  { "entry"
+ 	    { "selector" { "facility" = "*" } { "level" = "*" } }
+-	    { "action" { "protocol" = "@" } { "hostname" = "syslog.far.away" } }
++	    { "action" { "hostname" = "syslog.far.away" } }
+ 	  }
+ 	  { "entry"
+ 	    { "selector" { "facility" = "*" } { "level" = "*" } }
+-	    { "action" { "protocol" = "@" } { "hostname" = "syslog.far.away" } { "port" = "123" } }
++	    { "action" { "hostname" = "syslog.far.away" } { "port" = "123" } }
+ 	  }
+ 	  { "entry"
+ 	    { "selector" { "facility" = "*" } { "level" = "*" } }
+@@ -107,7 +107,7 @@ daemon.info                                     /var/log/cvsupd.log
+ 	  }
+ 	  { "entry"
+ 	    { "selector" { "facility" = "*" } { "level" = "*" } }
+-	    { "action" { "protocol" = "@" } { "hostname" = "[2001::1]" } { "port" = "514" } }
++	    { "action" { "hostname" = "[2001::1]" } { "port" = "514" } }
+ 	  }
+ 	  { "entry"
+ 	    { "selector" { "facility" = "*" } { "level" = "*" } }
+@@ -260,7 +260,6 @@ daemon.info                                     /var/log/cvsupd.log
+ 	(* changing file to remote host *)
+ 	test Syslog.lns put "*.* /var\n" after
+ 	  rm "/entry/action/file" ;
+-	  set "/entry/action/protocol"  "@" ;
+ 	  set "/entry/action/hostname" "far.far.away"
+ 	  = "*.* @far.far.away\n"
+ 
+-- 
+2.13.6
+

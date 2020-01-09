@@ -1,0 +1,51 @@
+From 898ea6cd04163b38aa59b0c3d9df23cf1837d425 Mon Sep 17 00:00:00 2001
+From: Dominic Cleal <dcleal@redhat.com>
+Date: Fri, 12 Jun 2015 10:46:57 +0100
+Subject: [PATCH] UpdateDB: autoload /etc/updatedb.conf with Simplevars
+
+updatedb.conf was loaded with Simplevars in Augeas 1.1.0, so continue
+for compatibility.  Use aug_transform, augtool --transform etc. to use
+the newer, different, UpdateDB lens.
+---
+ lenses/simplevars.aug | 1 +
+ lenses/updatedb.aug   | 8 --------
+ 2 files changed, 1 insertion(+), 8 deletions(-)
+
+diff --git a/lenses/simplevars.aug b/lenses/simplevars.aug
+index ad9795f0..ff0602cc 100644
+--- a/lenses/simplevars.aug
++++ b/lenses/simplevars.aug
+@@ -41,6 +41,7 @@ let lns = (Util.empty | Util.comment | entry)*
+ (* Variable: filter *)
+ let filter = incl "/etc/kernel-img.conf"
+            . incl "/etc/kerneloops.conf"
++           . incl "/etc/updatedb.conf"
+            . incl "/etc/wgetrc"
+            . incl "/etc/zabbix/*.conf"
+            . incl "/etc/audit/auditd.conf"
+diff --git a/lenses/updatedb.aug b/lenses/updatedb.aug
+index 40cd26fb..c7309b16 100644
+--- a/lenses/updatedb.aug
++++ b/lenses/updatedb.aug
+@@ -22,8 +22,6 @@ About: Examples
+ 
+ module UpdateDB =
+ 
+-autoload xfm
+-
+ (* View: list
+      A list entry *)
+ let list =
+@@ -41,9 +39,3 @@ let bool = [ key "PRUNE_BIND_MOUNTS" . Sep.space_equal
+ (* View: lns
+      The <UpdateDB> lens *)
+ let lns = (Util.empty|Util.comment|list|bool)*
+-
+-(* Variable: filter
+-      The filter *)
+-let filter = incl "/etc/updatedb.conf"
+-
+-let xfm = transform lns filter
+-- 
+2.13.6
+

@@ -1,0 +1,418 @@
+From faf60bc7b1cb727482a17de9a2483998763978c0 Mon Sep 17 00:00:00 2001
+From: Dominic Cleal <dcleal@redhat.com>
+Date: Fri, 12 Jun 2015 11:14:32 +0100
+Subject: [PATCH] Slapd: revert Slapd module to 1.1.0-compatible, add Slapd_140
+
+In order to keep the default sshd config lens compatible with 1.1.0,
+the lens from 1.4.0 has been kept in the Slapd_140 module and is not
+loaded by default.  Use aug_transform, augtool --transform etc. to use
+it instead of Slapd.
+---
+ lenses/slapd.aug                |  18 ++---
+ lenses/slapd_140.aug            | 158 ++++++++++++++++++++++++++++++++++++++++
+ lenses/tests/test_slapd.aug     |  55 ++++----------
+ lenses/tests/test_slapd_140.aug |  94 ++++++++++++++++++++++++
+ tests/Makefile.am               |   1 +
+ 5 files changed, 273 insertions(+), 53 deletions(-)
+ create mode 100644 lenses/slapd_140.aug
+ create mode 100644 lenses/tests/test_slapd_140.aug
+
+diff --git a/lenses/slapd.aug b/lenses/slapd.aug
+index e1195655..afe074b1 100644
+--- a/lenses/slapd.aug
++++ b/lenses/slapd.aug
+@@ -18,6 +18,7 @@ let sep         = del /[ \t\n]+/ " "
+ 
+ let sto_to_eol  = store /([^ \t\n].*[^ \t\n]|[^ \t\n])/
+ let sto_to_spc  = store /[^\\# \t\n]+/
++let sto_to_by   = store (/[^\\# \t\n]+/ - "by")
+ 
+ let comment     = Util.comment
+ let empty       = Util.empty
+@@ -27,14 +28,12 @@ let empty       = Util.empty
+  *************************************************************************)
+ 
+ let access_re   = "access to"
+-let control_re  = "stop" | "continue" | "break"
+-let what        = [ spc . label "access"
+-                  . store (/[^\\# \t\n]+/ - ("by" | control_re)) ]
++let who         = [ spc . label "who"     . sto_to_spc ]
++let what        = [ spc . label "what"    . sto_to_spc ]
+ 
+ (* TODO: parse the control field, see man slapd.access (5) *)
+-let control     = [ spc . label "control" . store control_re ]
+-let by          = [ sep . key "by" . spc . sto_to_spc
+-                  . what? . control? ]
++let control     = [ spc . label "control" . sto_to_by  ]
++let by          = [ sep . key "by". who . what. control? ]
+ 
+ let access      = [ key access_re . spc. sto_to_spc . by+ . eol ]
+ 
+@@ -134,21 +133,18 @@ let database_re = "suffix"
+                 | "restrict"
+                 | "rootdn"
+                 | "rootpw"
++                | "suffix"
+                 | "subordinate"
+                 | "syncrepl rid"
+                 | "updatedn"
+                 | "updateref"
+                 | database_hdb
+ 
+-let database_entry =
+-     let val = Quote.double_opt
+-  in Build.key_value_line database_re Sep.space val
+-
+ let database    = [ key "database"
+                   . spc
+                   . sto_to_eol
+                   . eol
+-                  . (comment|empty|database_entry|access)* ]
++                  . (comment|empty|Build.key_ws_value database_re|access)* ]
+ 
+ (************************************************************************
+  *                              LENS
+diff --git a/lenses/slapd_140.aug b/lenses/slapd_140.aug
+new file mode 100644
+index 00000000..8d1cd074
+--- /dev/null
++++ b/lenses/slapd_140.aug
+@@ -0,0 +1,158 @@
++(* Slapd module for Augeas
++   This module is compatible with Augeas 1.4.0, but is not loaded by default.
++
++   Author: Free Ekanayaka <free@64studio.com>
++
++   Reference: man slapd.conf(5), man slapd.access (5)
++
++*)
++
++module Slapd_140 =
++
++(************************************************************************
++ *                           USEFUL PRIMITIVES
++ *************************************************************************)
++
++let eol         = Util.eol
++let spc         = Util.del_ws_spc
++let sep         = del /[ \t\n]+/ " "
++
++let sto_to_eol  = store /([^ \t\n].*[^ \t\n]|[^ \t\n])/
++let sto_to_spc  = store /[^\\# \t\n]+/
++
++let comment     = Util.comment
++let empty       = Util.empty
++
++(************************************************************************
++ *                           ACCESS TO
++ *************************************************************************)
++
++let access_re   = "access to"
++let control_re  = "stop" | "continue" | "break"
++let what        = [ spc . label "access"
++                  . store (/[^\\# \t\n]+/ - ("by" | control_re)) ]
++
++(* TODO: parse the control field, see man slapd.access (5) *)
++let control     = [ spc . label "control" . store control_re ]
++let by          = [ sep . key "by" . spc . sto_to_spc
++                  . what? . control? ]
++
++let access      = [ key access_re . spc. sto_to_spc . by+ . eol ]
++
++(************************************************************************
++ *                             GLOBAL
++ *************************************************************************)
++
++(* TODO: parse special field separately, see man slapd.conf (5) *)
++let global_re   = "allow"
++                | "argsfile"
++                | "attributeoptions"
++                | "attributetype"
++                | "authz-policy"
++                | "ldap"
++                | "dn"
++                | "concurrency"
++                | "cron_max_pending"
++                | "conn_max_pending_auth"
++                | "defaultsearchbase"
++                | "disallow"
++                | "ditcontentrule"
++                | "gentlehup"
++                | "idletimeout"
++                | "include"
++                | "index_substr_if_minlen"
++                | "index_substr_if_maxlen"
++                | "index_substr_any_len"
++                | "index_substr_any_step"
++                | "localSSF"
++                | "loglevel"
++                | "moduleload"
++                | "modulepath"
++                | "objectclass"
++                | "objectidentifier"
++                | "password-hash"
++                | "password-crypt-salt-format"
++                | "pidfile"
++                | "referral"
++                | "replica-argsfile"
++                | "replica-pidfile"
++                | "replicationinterval"
++                | "require"
++                | "reverse-lookup"
++                | "rootDSE"
++                | "sasl-host "
++                | "sasl-realm"
++                | "sasl-secprops"
++                | "schemadn"
++                | "security"
++                | "sizelimit"
++                | "sockbuf_max_incoming "
++                | "sockbuf_max_incoming_auth"
++                | "threads"
++                | "timelimit time"
++                | "tool-threads"
++                | "TLSCipherSuite"
++                | "TLSCACertificateFile"
++                | "TLSCACertificatePath"
++                | "TLSCertificateFile"
++                | "TLSCertificateKeyFile"
++                | "TLSDHParamFile"
++                | "TLSRandFile"
++                | "TLSVerifyClient"
++                | "TLSCRLCheck"
++                | "backend"
++
++let global     = Build.key_ws_value global_re
++
++(************************************************************************
++ *                             DATABASE
++ *************************************************************************)
++
++(* TODO: support all types of database backend *)
++let database_hdb = "cachesize"
++                | "cachefree"
++                | "checkpoint"
++                | "dbconfig"
++                | "dbnosync"
++                | "directory"
++                | "dirtyread"
++                | "idlcachesize"
++                | "index"
++                | "linearindex"
++                | "lockdetect"
++                | "mode"
++                | "searchstack"
++                | "shm_key"
++
++let database_re = "suffix"
++                | "lastmod"
++                | "limits"
++                | "maxderefdepth"
++                | "overlay"
++                | "readonly"
++                | "replica uri"
++                | "replogfile"
++                | "restrict"
++                | "rootdn"
++                | "rootpw"
++                | "subordinate"
++                | "syncrepl rid"
++                | "updatedn"
++                | "updateref"
++                | database_hdb
++
++let database_entry =
++     let val = Quote.double_opt
++  in Build.key_value_line database_re Sep.space val
++
++let database    = [ key "database"
++                  . spc
++                  . sto_to_eol
++                  . eol
++                  . (comment|empty|database_entry|access)* ]
++
++(************************************************************************
++ *                              LENS
++ *************************************************************************)
++
++let lns         = (comment|empty|global|access)* . (database)*
+diff --git a/lenses/tests/test_slapd.aug b/lenses/tests/test_slapd.aug
+index a4bbb4e9..e477342a 100644
+--- a/lenses/tests/test_slapd.aug
++++ b/lenses/tests/test_slapd.aug
+@@ -48,47 +48,18 @@ test Slapd.lns get conf =
+   { "database" = "hdb"
+      {}
+      { "#comment" = "The base of your directory in database #1" }
+-     { "suffix"   = "dc=nodomain" }
++     { "suffix"   = "\"dc=nodomain\"" }
+      {}
+      { "access to" = "attrs=userPassword,shadowLastChange"
+-        { "by" = "dn=\"cn=admin,dc=nodomain\""
+-           { "access" = "write" } }
+-        { "by" = "anonymous"
+-           { "access" = "auth" } }
+-        { "by" = "self"
+-           { "access" = "write" } }
+-        { "by" = "*"
+-           { "access" = "none" } } } }
+-
+-(* Test: Slapd.lns
+-     Full access test with who/access/control *)
+-test Slapd.lns get "access to dn.subtree=\"dc=example,dc=com\"
+-  by self write stop\n" =
+-  { "access to" = "dn.subtree=\"dc=example,dc=com\""
+-    { "by" = "self"
+-      { "access" = "write" }
+-      { "control" = "stop" } } }
+-
+-(* Test: Slapd.lns
+-     access test with who *)
+-test Slapd.lns get "access to dn.subtree=\"dc=example,dc=com\"
+-  by self\n" =
+-  { "access to" = "dn.subtree=\"dc=example,dc=com\""
+-    { "by" = "self" } }
+-
+-(* Test: Slapd.lns
+-     access test with who/access *)
+-test Slapd.lns get "access to dn.subtree=\"dc=example,dc=com\"
+-  by self write\n" =
+-  { "access to" = "dn.subtree=\"dc=example,dc=com\""
+-    { "by" = "self"
+-      { "access" = "write" } } }
+-
+-(* Test: Slapd.lns
+-     access test with who/control *)
+-test Slapd.lns get "access to dn.subtree=\"dc=example,dc=com\"
+-  by self stop\n" =
+-  { "access to" = "dn.subtree=\"dc=example,dc=com\""
+-    { "by" = "self"
+-      { "control" = "stop" } } }
+-
++        { "by"
++           { "who" = "dn=\"cn=admin,dc=nodomain\"" }
++           { "what" = "write" } }
++        { "by"
++           { "who" = "anonymous" }
++           { "what" = "auth" } }
++        { "by"
++           { "who" = "self" }
++           { "what" = "write" } }
++        { "by"
++           { "who" = "*" }
++           { "what" = "none" } } } }
+diff --git a/lenses/tests/test_slapd_140.aug b/lenses/tests/test_slapd_140.aug
+new file mode 100644
+index 00000000..0118f030
+--- /dev/null
++++ b/lenses/tests/test_slapd_140.aug
+@@ -0,0 +1,94 @@
++module Test_slapd_140 =
++
++let conf = "# This is the main slapd configuration file. See slapd.conf(5) for more
++# info on the configuration options.
++
++#######################################################################
++# Global Directives:
++
++# Features to permit
++#allow bind_v2
++
++# Schema and objectClass definitions
++include         /etc/ldap/schema/core.schema
++
++#######################################################################
++# Specific Directives for database #1, of type hdb:
++# Database specific directives apply to this databasse until another
++# 'database' directive occurs
++database        hdb
++
++# The base of your directory in database #1
++suffix          \"dc=nodomain\"
++
++access to attrs=userPassword,shadowLastChange
++        by dn=\"cn=admin,dc=nodomain\" write
++        by anonymous auth
++        by self write
++        by * none
++"
++
++test Slapd_140.lns get conf =
++  { "#comment" = "This is the main slapd configuration file. See slapd.conf(5) for more" }
++  { "#comment" = "info on the configuration options." }
++  {}
++  { "#comment" = "######################################################################" }
++  { "#comment" = "Global Directives:"}
++  {}
++  { "#comment" = "Features to permit" }
++  { "#comment" = "allow bind_v2" }
++  {}
++  { "#comment" = "Schema and objectClass definitions" }
++  { "include"  = "/etc/ldap/schema/core.schema" }
++  {}
++  { "#comment" = "######################################################################" }
++  { "#comment" = "Specific Directives for database #1, of type hdb:" }
++  { "#comment" = "Database specific directives apply to this databasse until another" }
++  { "#comment" = "'database' directive occurs" }
++  { "database" = "hdb"
++     {}
++     { "#comment" = "The base of your directory in database #1" }
++     { "suffix"   = "dc=nodomain" }
++     {}
++     { "access to" = "attrs=userPassword,shadowLastChange"
++        { "by" = "dn=\"cn=admin,dc=nodomain\""
++           { "access" = "write" } }
++        { "by" = "anonymous"
++           { "access" = "auth" } }
++        { "by" = "self"
++           { "access" = "write" } }
++        { "by" = "*"
++           { "access" = "none" } } } }
++
++(* Test: Slapd_140.lns
++     Full access test with who/access/control *)
++test Slapd_140.lns get "access to dn.subtree=\"dc=example,dc=com\"
++  by self write stop\n" =
++  { "access to" = "dn.subtree=\"dc=example,dc=com\""
++    { "by" = "self"
++      { "access" = "write" }
++      { "control" = "stop" } } }
++
++(* Test: Slapd_140.lns
++     access test with who *)
++test Slapd_140.lns get "access to dn.subtree=\"dc=example,dc=com\"
++  by self\n" =
++  { "access to" = "dn.subtree=\"dc=example,dc=com\""
++    { "by" = "self" } }
++
++(* Test: Slapd_140.lns
++     access test with who/access *)
++test Slapd_140.lns get "access to dn.subtree=\"dc=example,dc=com\"
++  by self write\n" =
++  { "access to" = "dn.subtree=\"dc=example,dc=com\""
++    { "by" = "self"
++      { "access" = "write" } } }
++
++(* Test: Slapd_140.lns
++     access test with who/control *)
++test Slapd_140.lns get "access to dn.subtree=\"dc=example,dc=com\"
++  by self stop\n" =
++  { "access to" = "dn.subtree=\"dc=example,dc=com\""
++    { "by" = "self"
++      { "control" = "stop" } } }
++
+diff --git a/tests/Makefile.am b/tests/Makefile.am
+index 315cac9c..65d8993e 100644
+--- a/tests/Makefile.am
++++ b/tests/Makefile.am
+@@ -182,6 +182,7 @@ lens_tests =			\
+   lens-simplevars.sh	\
+   lens-sip_conf.sh	    \
+   lens-slapd.sh			\
++  lens-slapd_140.sh			\
+   lens-smbusers.sh			\
+   lens-solaris_system.sh		\
+   lens-soma.sh			\
+-- 
+2.13.6
+

@@ -1,0 +1,490 @@
+From 1c936bb38d39b238001364e1a7ee5479bdfff053 Mon Sep 17 00:00:00 2001
+From: Dominic Cleal <dcleal@redhat.com>
+Date: Fri, 12 Jun 2015 11:01:57 +0100
+Subject: [PATCH] Sshd: revert Sshd module to 1.1.0-compatible, add Sshd_140
+
+In order to keep the default sshd config lens compatible with 1.1.0,
+the lens from 1.4.0 has been kept in the Sshd_140 module and is not
+loaded by default.  Use aug_transform, augtool --transform etc. to use
+it instead of Sshd.
+---
+ lenses/sshd.aug                |  52 ++++++---------
+ lenses/sshd_140.aug            | 141 +++++++++++++++++++++++++++++++++++++++++
+ lenses/tests/test_sshd.aug     |  56 ----------------
+ lenses/tests/test_sshd_140.aug | 136 +++++++++++++++++++++++++++++++++++++++
+ tests/Makefile.am              |   1 +
+ 5 files changed, 298 insertions(+), 88 deletions(-)
+ create mode 100644 lenses/sshd_140.aug
+ create mode 100644 lenses/tests/test_sshd_140.aug
+
+diff --git a/lenses/sshd.aug b/lenses/sshd.aug
+index 55f6c4f7..785102ec 100644
+--- a/lenses/sshd.aug
++++ b/lenses/sshd.aug
+@@ -70,55 +70,41 @@ module Sshd =
+ 
+    let sep = Util.del_ws_spc
+ 
+-   let indent = del /[ \t]*/ "  "
+-
+    let key_re = /[A-Za-z0-9]+/
+-         - /MACs|Match|AcceptEnv|Subsystem|Ciphers|KexAlgorithms|(Allow|Deny)(Groups|Users)/i
++         - /MACs|Match|AcceptEnv|Subsystem|(Allow|Deny)(Groups|Users)/
+ 
+    let comment = Util.comment
+-   let comment_noindent = Util.comment_noindent
+    let empty = Util.empty
+ 
+-   let array_entry (kw:regexp) (sq:string) =
++   let array_entry (k:string) =
+      let value = store /[^ \t\n]+/ in
+-     [ key kw . [ sep . seq sq . value]* . eol ]
++     [ key k . [ sep . seq k . value]* . eol ]
+ 
+    let other_entry =
+      let value = store /[^ \t\n]+([ \t]+[^ \t\n]+)*/ in
+      [ key key_re . sep . value . eol ]
+ 
+-   let accept_env = array_entry /AcceptEnv/i "AcceptEnv"
++   let accept_env = array_entry "AcceptEnv"
+ 
+-   let allow_groups = array_entry /AllowGroups/i "AllowGroups"
+-   let allow_users = array_entry /AllowUsers/i "AllowUsers"
+-   let deny_groups = array_entry /DenyGroups/i "DenyGroups"
+-   let deny_users = array_entry /DenyUsers/i "DenyUsers"
++   let allow_groups = array_entry "AllowGroups"
++   let allow_users = array_entry "AllowUsers"
++   let deny_groups = array_entry "DenyGroups"
++   let deny_users = array_entry "DenyUsers"
+ 
+    let subsystemvalue =
+      let value = store (/[^ \t\n](.*[^ \t\n])?/) in
+      [ key /[A-Za-z0-9\-]+/ . sep . value . eol ]
+ 
+    let subsystem =
+-     [ key /Subsystem/i .  sep .  subsystemvalue ]
++     [ key "Subsystem" .  sep .  subsystemvalue ]
+ 
+-   let list (kw:regexp) (sq:string) =
+-     let value = store /[^, \t\n]+/ in
+-     [ key kw . sep .
+-         [ seq sq . value ] .
+-         ([ seq sq . Util.del_str "," . value])* .
++   let macs =
++     let mac_value = store /[^, \t\n]+/ in
++     [ key "MACs" . sep .
++         [ seq "macs" . mac_value ] .
++         ([ seq "macs" . Util.del_str "," . mac_value])* .
+          eol ]
+ 
+-   let macs = list /MACs/i "MACs"
+-
+-   let ciphers = list /Ciphers/i "Ciphers"
+-
+-   let kexalgorithms = list /KexAlgorithms/i "KexAlgorithms"
+-
+-   let entry = accept_env | allow_groups | allow_users
+-             | deny_groups | subsystem | deny_users
+-             | macs | ciphers | kexalgorithms
+-             | other_entry
+-
+    let condition_entry =
+     let value = store  /[^ \t\n]+/ in
+     [ sep . key /[A-Za-z0-9]+/ . sep . value ]
+@@ -126,15 +112,17 @@ module Sshd =
+    let match_cond =
+      [ label "Condition" . condition_entry+ . eol ]
+ 
+-   let match_entry = indent . (entry | comment_noindent)
+-                   | empty 
++   let match_entry =
++     ( comment | empty | (Util.indent . other_entry) )
+ 
+    let match =
+-     [ key /Match/i . match_cond
++     [ key "Match" . match_cond
+         . [ label "Settings" .  match_entry+ ]
+      ]
+ 
+-  let lns = (entry | comment | empty)* . match* 
++  let lns = (comment | empty | accept_env | allow_groups | allow_users
++          | deny_groups | subsystem | deny_users | macs
++          | other_entry ) * . match*
+ 
+   let xfm = transform lns (incl "/etc/ssh/sshd_config")
+ 
+diff --git a/lenses/sshd_140.aug b/lenses/sshd_140.aug
+new file mode 100644
+index 00000000..8a7f176f
+--- /dev/null
++++ b/lenses/sshd_140.aug
+@@ -0,0 +1,141 @@
++(*
++Module: Sshd_140
++  Parses /etc/ssh/sshd_config
++
++  This module is compatible with Augeas 1.4.0, but is not loaded by default.
++
++Author: David Lutterkort lutter@redhat.com
++        Dominique Dumont dominique.dumont@hp.com
++
++About: Reference
++  sshd_config man page.
++  See http://www.openbsd.org/cgi-bin/man.cgi?query=sshd_config&sektion=5
++
++About: License
++  This file is licensed under the LGPL v2+.
++
++About: Lens Usage
++  Sample usage of this lens in augtool:
++
++    * Get your current setup
++      > print /files/etc/ssh/sshd_config
++      ...
++
++    * Set X11Forwarding to "no"
++      > set /files/etc/ssh/sshd_config/X11Forwarding "no"
++
++  More advanced usage:
++
++    * Set a Match section
++      > set /files/etc/ssh/sshd_config/Match[1]/Condition/User "foo"
++      > set /files/etc/ssh/sshd_config/Match[1]/Settings/X11Forwarding "yes"
++
++  Saving your file:
++
++      > save
++
++
++About: CAVEATS
++
++  In sshd_config, Match blocks must be located at the end of the file.
++  This means that any new "global" parameters (i.e. outside of a Match
++  block) must be written before the first Match block. By default,
++  Augeas will write new parameters at the end of the file.
++
++  I.e. if you have a Match section and no ChrootDirectory parameter,
++  this command:
++
++     > set /files/etc/ssh/sshd_config/ChrootDirectory "foo"
++
++  will be stored in a new node after the Match section and Augeas will
++  refuse to save sshd_config file.
++
++  To create a new parameter as the right place, you must first create
++  a new Augeas node before the Match section:
++
++     > ins ChrootDirectory before /files/etc/ssh/sshd_config/Match
++
++  Then, you can set the parameter
++
++     > set /files/etc/ssh/sshd_config/ChrootDirectory "foo"
++
++
++About: Configuration files
++  This lens applies to /etc/ssh/sshd_config
++
++*)
++
++module Sshd_140 =
++   let eol = del /[ \t]*\n/ "\n"
++
++   let sep = Util.del_ws_spc
++
++   let indent = del /[ \t]*/ "  "
++
++   let key_re = /[A-Za-z0-9]+/
++         - /MACs|Match|AcceptEnv|Subsystem|Ciphers|KexAlgorithms|(Allow|Deny)(Groups|Users)/i
++
++   let comment = Util.comment
++   let comment_noindent = Util.comment_noindent
++   let empty = Util.empty
++
++   let array_entry (kw:regexp) (sq:string) =
++     let value = store /[^ \t\n]+/ in
++     [ key kw . [ sep . seq sq . value]* . eol ]
++
++   let other_entry =
++     let value = store /[^ \t\n]+([ \t]+[^ \t\n]+)*/ in
++     [ key key_re . sep . value . eol ]
++
++   let accept_env = array_entry /AcceptEnv/i "AcceptEnv"
++
++   let allow_groups = array_entry /AllowGroups/i "AllowGroups"
++   let allow_users = array_entry /AllowUsers/i "AllowUsers"
++   let deny_groups = array_entry /DenyGroups/i "DenyGroups"
++   let deny_users = array_entry /DenyUsers/i "DenyUsers"
++
++   let subsystemvalue =
++     let value = store (/[^ \t\n](.*[^ \t\n])?/) in
++     [ key /[A-Za-z0-9\-]+/ . sep . value . eol ]
++
++   let subsystem =
++     [ key /Subsystem/i .  sep .  subsystemvalue ]
++
++   let list (kw:regexp) (sq:string) =
++     let value = store /[^, \t\n]+/ in
++     [ key kw . sep .
++         [ seq sq . value ] .
++         ([ seq sq . Util.del_str "," . value])* .
++         eol ]
++
++   let macs = list /MACs/i "MACs"
++
++   let ciphers = list /Ciphers/i "Ciphers"
++
++   let kexalgorithms = list /KexAlgorithms/i "KexAlgorithms"
++
++   let entry = accept_env | allow_groups | allow_users
++             | deny_groups | subsystem | deny_users
++             | macs | ciphers | kexalgorithms
++             | other_entry
++
++   let condition_entry =
++    let value = store  /[^ \t\n]+/ in
++    [ sep . key /[A-Za-z0-9]+/ . sep . value ]
++
++   let match_cond =
++     [ label "Condition" . condition_entry+ . eol ]
++
++   let match_entry = indent . (entry | comment_noindent)
++                   | empty 
++
++   let match =
++     [ key /Match/i . match_cond
++        . [ label "Settings" .  match_entry+ ]
++     ]
++
++  let lns = (entry | comment | empty)* . match* 
++
++(* Local Variables: *)
++(* mode: caml       *)
++(* End:             *)
+diff --git a/lenses/tests/test_sshd.aug b/lenses/tests/test_sshd.aug
+index 5954e16f..788a12f0 100644
+--- a/lenses/tests/test_sshd.aug
++++ b/lenses/tests/test_sshd.aug
+@@ -1,4 +1,3 @@
+-(* Module: Test_sshd *)
+ module Test_sshd =
+ 
+   let accept_env = "Protocol 2
+@@ -75,61 +74,6 @@ Match User sarko Group pres.*
+ Match User bush Group pres.* Host white.house.*
+ Banner /etc/welcome.txt\n"
+ 
+-(* Test: Sshd.lns
+-   Indent when adding to a Match group *)
+-  test Sshd.lns put match_blocks after
+-    set "Match[1]/Settings/PermitRootLogin" "yes";
+-    set "Match[1]/Settings/#comment" "a comment" =
+-"X11Forwarding yes
+-Match User sarko Group pres.*
+-  Banner /etc/bienvenue.txt
+-  X11Forwarding no
+-  PermitRootLogin yes
+-  # a comment
+-Match User bush Group pres.* Host white.house.*
+-Banner /etc/welcome.txt\n"
+-
+-
+-(* Test: Sshd.lns
+-     Parse Ciphers and KexAlgorithms as lists (GH issue #69) *)
+-test Sshd.lns get "Ciphers aes256-gcm@openssh.com,aes128-gcm@openssh.com,aes256-ctr,aes128-ctr
+-KexAlgorithms diffie-hellman-group-exchange-sha256,diffie-hellman-group14-sha1,diffie-hellman-group-exchange-sha1\n" =
+-  { "Ciphers"
+-    { "1" = "aes256-gcm@openssh.com" }
+-    { "2" = "aes128-gcm@openssh.com" }
+-    { "3" = "aes256-ctr" }
+-    { "4" = "aes128-ctr" }
+-  }
+-  { "KexAlgorithms"
+-    { "1" = "diffie-hellman-group-exchange-sha256" }
+-    { "2" = "diffie-hellman-group14-sha1" }
+-    { "3" = "diffie-hellman-group-exchange-sha1" }
+-  }
+-
+-(* Test: Sshd.lns
+-     Keys are case-insensitive *)
+-test Sshd.lns get "ciPheRs aes256-gcm@openssh.com,aes128-ctr
+-maTcH User foo
+-  x11forwarding no\n" =
+-  { "ciPheRs"
+-    { "1" = "aes256-gcm@openssh.com" }
+-    { "2" = "aes128-ctr" }
+-  }
+-  { "maTcH"
+-    { "Condition"
+-      { "User" = "foo" }
+-    }
+-    { "Settings"
+-      { "x11forwarding" = "no" }
+-    }
+-  }
+-
+-(* Test: Sshd.lns
+-     Allow AllowGroups in Match groups (GH issue #75) *)
+-test Sshd.lns get "Match User foo
+-AllowGroups users\n" =
+-  { "Match" { "Condition" { "User" = "foo" } }
+-    { "Settings" { "AllowGroups" { "1" = "users" } } } }
+ 
+ (* Local Variables: *)
+ (* mode: caml       *)
+diff --git a/lenses/tests/test_sshd_140.aug b/lenses/tests/test_sshd_140.aug
+new file mode 100644
+index 00000000..056c53f9
+--- /dev/null
++++ b/lenses/tests/test_sshd_140.aug
+@@ -0,0 +1,136 @@
++(* Module: Test_sshd_140 *)
++module Test_sshd_140 =
++
++  let accept_env = "Protocol 2
++AcceptEnv LC_PAPER LC_NAME LC_ADDRESS LC_TELEPHONE LC_MEASUREMENT
++AcceptEnv LC_IDENTIFICATION LC_ALL\n"
++
++  test Sshd_140.lns get accept_env =
++    { "Protocol" = "2" }
++    { "AcceptEnv"
++        { "1" = "LC_PAPER" }
++        { "2" = "LC_NAME" }
++        { "3" = "LC_ADDRESS" }
++        { "4" = "LC_TELEPHONE" }
++        { "5" = "LC_MEASUREMENT" } }
++    { "AcceptEnv"
++        { "6" = "LC_IDENTIFICATION" }
++        { "7" = "LC_ALL" } }
++
++
++  test Sshd_140.lns get "HostKey /etc/ssh/ssh_host_rsa_key
++HostKey /etc/ssh/ssh_host_dsa_key\n" =
++    { "HostKey" = "/etc/ssh/ssh_host_rsa_key" }
++    { "HostKey" = "/etc/ssh/ssh_host_dsa_key" }
++
++
++  test Sshd_140.lns put accept_env after
++      rm "AcceptEnv";
++      rm "AcceptEnv";
++      set "Protocol" "1.5";
++      set "X11Forwarding" "yes"
++   = "Protocol 1.5\nX11Forwarding yes\n"
++
++  test Sshd_140.lns get "AuthorizedKeysFile  %h/.ssh/authorized_keys\n" =
++    { "AuthorizedKeysFile" = "%h/.ssh/authorized_keys" }
++
++  test Sshd_140.lns get "Subsystem sftp /usr/lib/openssh/sftp-server\n" =
++    { "Subsystem"
++	{ "sftp" = "/usr/lib/openssh/sftp-server" } }
++
++  test Sshd_140.lns get "Subsystem sftp-test /usr/lib/openssh/sftp-server\n" =
++    { "Subsystem"
++	{ "sftp-test" = "/usr/lib/openssh/sftp-server" } }
++
++
++
++  let match_blocks = "X11Forwarding yes
++Match User sarko Group pres.*
++  Banner /etc/bienvenue.txt
++  X11Forwarding no
++Match User bush Group pres.* Host white.house.*
++Banner /etc/welcome.txt
++"
++  test Sshd_140.lns get match_blocks =
++    { "X11Forwarding" = "yes"}
++      { "Match"
++	  { "Condition" { "User" = "sarko"   }
++	                { "Group" = "pres.*" } }
++	  { "Settings"  { "Banner" = "/etc/bienvenue.txt" }
++       	                { "X11Forwarding" = "no" } } }
++      { "Match"
++	  { "Condition" { "User" = "bush"    }
++	                { "Group" = "pres.*" }
++	                { "Host"  = "white.house.*" } }
++	  { "Settings"  { "Banner" = "/etc/welcome.txt" } } }
++
++  test Sshd_140.lns put match_blocks after
++    insb "Subsystem" "/Match[1]";
++    set "/Subsystem/sftp" "/usr/libexec/openssh/sftp-server"
++  = "X11Forwarding yes
++Subsystem sftp /usr/libexec/openssh/sftp-server
++Match User sarko Group pres.*
++  Banner /etc/bienvenue.txt
++  X11Forwarding no
++Match User bush Group pres.* Host white.house.*
++Banner /etc/welcome.txt\n"
++
++(* Test: Sshd_140.lns
++   Indent when adding to a Match group *)
++  test Sshd_140.lns put match_blocks after
++    set "Match[1]/Settings/PermitRootLogin" "yes";
++    set "Match[1]/Settings/#comment" "a comment" =
++"X11Forwarding yes
++Match User sarko Group pres.*
++  Banner /etc/bienvenue.txt
++  X11Forwarding no
++  PermitRootLogin yes
++  # a comment
++Match User bush Group pres.* Host white.house.*
++Banner /etc/welcome.txt\n"
++
++
++(* Test: Sshd_140.lns
++     Parse Ciphers and KexAlgorithms as lists (GH issue #69) *)
++test Sshd_140.lns get "Ciphers aes256-gcm@openssh.com,aes128-gcm@openssh.com,aes256-ctr,aes128-ctr
++KexAlgorithms diffie-hellman-group-exchange-sha256,diffie-hellman-group14-sha1,diffie-hellman-group-exchange-sha1\n" =
++  { "Ciphers"
++    { "1" = "aes256-gcm@openssh.com" }
++    { "2" = "aes128-gcm@openssh.com" }
++    { "3" = "aes256-ctr" }
++    { "4" = "aes128-ctr" }
++  }
++  { "KexAlgorithms"
++    { "1" = "diffie-hellman-group-exchange-sha256" }
++    { "2" = "diffie-hellman-group14-sha1" }
++    { "3" = "diffie-hellman-group-exchange-sha1" }
++  }
++
++(* Test: Sshd_140.lns
++     Keys are case-insensitive *)
++test Sshd_140.lns get "ciPheRs aes256-gcm@openssh.com,aes128-ctr
++maTcH User foo
++  x11forwarding no\n" =
++  { "ciPheRs"
++    { "1" = "aes256-gcm@openssh.com" }
++    { "2" = "aes128-ctr" }
++  }
++  { "maTcH"
++    { "Condition"
++      { "User" = "foo" }
++    }
++    { "Settings"
++      { "x11forwarding" = "no" }
++    }
++  }
++
++(* Test: Sshd_140.lns
++     Allow AllowGroups in Match groups (GH issue #75) *)
++test Sshd_140.lns get "Match User foo
++AllowGroups users\n" =
++  { "Match" { "Condition" { "User" = "foo" } }
++    { "Settings" { "AllowGroups" { "1" = "users" } } } }
++
++(* Local Variables: *)
++(* mode: caml       *)
++(* End:             *)
+diff --git a/tests/Makefile.am b/tests/Makefile.am
+index b4563540..387ac7d2 100644
+--- a/tests/Makefile.am
++++ b/tests/Makefile.am
+@@ -189,6 +189,7 @@ lens_tests =			\
+   lens-squid.sh			\
+   lens-ssh.sh			\
+   lens-sshd.sh			\
++  lens-sshd_140.sh			\
+   lens-sssd.sh			\
+   lens-stunnel.sh			\
+   lens-subversion.sh		\
+-- 
+2.13.6
+

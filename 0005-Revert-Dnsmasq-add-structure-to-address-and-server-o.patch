@@ -1,0 +1,138 @@
+From 94b0373abfcb4a6474ee9bb7866fe28f9bbe876d Mon Sep 17 00:00:00 2001
+From: Dominic Cleal <dcleal@redhat.com>
+Date: Fri, 12 Jun 2015 10:48:58 +0100
+Subject: [PATCH] Revert "Dnsmasq: add structure to 'address' and 'server'
+ options"
+
+This reverts commit 3e20740056bd548f714cd50e4adc6b76a249ddfc for tree
+compatibility with Augeas 1.1.0.  address and server options will be
+unstructured.
+
+Conflicts:
+	NEWS
+---
+ lenses/dnsmasq.aug            | 34 +++++++++----------------------
+ lenses/tests/test_dnsmasq.aug | 47 -------------------------------------------
+ 2 files changed, 9 insertions(+), 72 deletions(-)
+
+diff --git a/lenses/dnsmasq.aug b/lenses/dnsmasq.aug
+index f7ef9070..e19aab83 100644
+--- a/lenses/dnsmasq.aug
++++ b/lenses/dnsmasq.aug
+@@ -17,42 +17,26 @@ module Dnsmasq =
+  *                           USEFUL PRIMITIVES
+  *************************************************************************)
+ 
+-let eol          = Util.eol
+-let spc          = Util.del_ws_spc
+-let comment      = Util.comment
+-let empty        = Util.empty
++let eol        = Util.eol
++let spc        = Util.del_ws_spc
++let comment    = Util.comment
++let empty      = Util.empty
+ 
+-let sep_eq       = Sep.equal
+-let sto_to_eol   = store /([^ \t\n].*[^ \t\n]|[^ \t\n])/
+-
+-let slash        = Util.del_str "/"
+-let sto_no_slash = store /([^\/ \t\n]+)/
+-let domains      = slash . [ label "domain" . sto_no_slash . slash ]+
++let sep_eq     = del /=/ "="
++let sto_to_eol = store /([^ \t\n].*[^ \t\n]|[^ \t\n])/
+ 
+ (************************************************************************
+- *                            SIMPLE ENTRIES
++ *                               ENTRIES
+  *************************************************************************)
+ 
+-let entry_re   = Rx.word - /(address|server)/
++let entry_re   = /[A-Za-z0-9._-]+/
+ let entry      = [ key entry_re . (sep_eq . sto_to_eol)? . eol ]
+ 
+ (************************************************************************
+- *                          STRUCTURED ENTRIES
+- *************************************************************************)
+-
+-let address       = [ key "address" . sep_eq . domains . sto_no_slash . eol ]
+-
+-let server        =
+-     let port     = [ Build.xchgs "#" "port" . store Rx.integer ]
+-  in let source   = [ Build.xchgs "@" "source" . store /[^#\/ \t\n]+/ . port? ]
+-  in let srv_spec = store /(#|([^#@\/ \t\n]+))/ . port? . source?
+-  in [ key "server" . sep_eq . domains? . srv_spec? . eol ]
+-
+-(************************************************************************
+  *                                LENS
+  *************************************************************************)
+ 
+-let lns = (comment|empty|address|server|entry) *
++let lns = (comment|empty|entry) *
+ 
+ let filter            = incl "/etc/dnsmasq.conf"
+                       . incl "/etc/dnsmasq.d/*"
+diff --git a/lenses/tests/test_dnsmasq.aug b/lenses/tests/test_dnsmasq.aug
+index c6a63d96..0abfa6bd 100644
+--- a/lenses/tests/test_dnsmasq.aug
++++ b/lenses/tests/test_dnsmasq.aug
+@@ -6,16 +6,6 @@ let conf = "# Configuration file for dnsmasq.
+ 
+ conf-dir=/etc/dnsmasq.d
+ selfmx
+-
+-address=/foo.com/bar.net/10.1.2.3
+-
+-server=10.4.5.6#1234
+-server=/bar.com/foo.net/10.7.8.9
+-server=/foo.org/bar.org/10.3.2.1@eth0#5678
+-server=/baz.org/#
+-server=/baz.net/#@eth1
+-server=10.6.5.4#1234@eth0#5678
+-server=/qux.com/qux.net/
+ "
+ 
+ test Dnsmasq.lns get conf =
+@@ -25,40 +15,3 @@ test Dnsmasq.lns get conf =
+   {}
+   { "conf-dir" = "/etc/dnsmasq.d" }
+   { "selfmx" }
+-  {}
+-  { "address" = "10.1.2.3"
+-    { "domain" = "foo.com" }
+-    { "domain" = "bar.net" }
+-  }
+-  {}
+-  { "server" = "10.4.5.6"
+-    { "port" = "1234" }
+-  }
+-  { "server" = "10.7.8.9"
+-    { "domain" = "bar.com" }
+-    { "domain" = "foo.net" }
+-  }
+-  { "server" = "10.3.2.1"
+-    { "domain" = "foo.org" }
+-    { "domain" = "bar.org" }
+-    { "source" = "eth0"
+-      { "port" = "5678" }
+-    }
+-  }
+-  { "server" = "#"
+-    { "domain" = "baz.org" }
+-  }
+-  { "server" = "#"
+-    { "domain" = "baz.net" }
+-    { "source" = "eth1" }
+-  }
+-  { "server" = "10.6.5.4"
+-    { "port" = "1234" }
+-    { "source" = "eth0"
+-      { "port" = "5678" }
+-    }
+-  }
+-  { "server"
+-    { "domain" = "qux.com" }
+-    { "domain" = "qux.net" }
+-  }
+-- 
+2.13.6
+

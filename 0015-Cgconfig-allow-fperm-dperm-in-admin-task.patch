@@ -1,0 +1,81 @@
+From de01f104d6ee4b11122aa4a108fc6082d3061886 Mon Sep 17 00:00:00 2001
+From: Pino Toscano <ptoscano@redhat.com>
+Date: Mon, 4 Sep 2017 18:45:05 +0200
+Subject: [PATCH] Cgconfig: allow fperm & dperm in admin & task
+
+These keys are used to control the permissions for files and
+directories.
+---
+ lenses/cgconfig.aug            |  2 +-
+ lenses/tests/test_cgconfig.aug | 45 ++++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 46 insertions(+), 1 deletion(-)
+
+diff --git a/lenses/cgconfig.aug b/lenses/cgconfig.aug
+index 6a5b8603..e766343d 100644
+--- a/lenses/cgconfig.aug
++++ b/lenses/cgconfig.aug
+@@ -30,7 +30,7 @@ module Cgconfig =
+    let name      = /[^#= \n\t{}\/]+/
+    let cont_name = /(cpuacct|cpu|devices|ns|cpuset|memory|freezer|net_cls|blkio|hugetlb|perf_event)/
+    let role_name = /(admin|task)/
+-   let id_name   = /(uid|gid)/
++   let id_name   = /(uid|gid|fperm|dperm)/
+    let address   = /[^#; \n\t{}]+/
+    let qaddress  = address|/"[^#;"\n\t{}]+"/
+ 
+diff --git a/lenses/tests/test_cgconfig.aug b/lenses/tests/test_cgconfig.aug
+index 6cd0856d..84fd2ded 100644
+--- a/lenses/tests/test_cgconfig.aug
++++ b/lenses/tests/test_cgconfig.aug
+@@ -318,3 +318,48 @@ test Cgconfig.lns get group6 =
+     {  }
+   }
+ 
++let group7 ="
++group daemons/www {
++  perm {
++    task {
++      uid = root;
++      gid = root;
++      fperm = 770;
++    }
++    admin {
++      uid = root;
++      gid = root;
++      dperm = 777;
++    }
++  }
++}
++"
++
++test Cgconfig.lns get group7 =
++  {  }
++  { "group" = "daemons/www"
++    {  }
++    { "perm"
++      {  }
++      { "task"
++        {  }
++        { "uid" = "root" }
++        {  }
++        { "gid" = "root" }
++        {  }
++        { "fperm" = "770" }
++        {  } }
++      {  }
++      { "admin"
++        {  }
++        { "uid" = "root" }
++        {  }
++        { "gid" = "root" }
++        {  }
++        { "dperm" = "777" }
++        {  } }
++      {  } }
++    {  }
++  }
++  {  }
++
+-- 
+2.13.6
+

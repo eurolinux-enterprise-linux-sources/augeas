@@ -1,0 +1,52 @@
+From 430f0210d36d3abf2bfbe2a336f8f8d260ccc81b Mon Sep 17 00:00:00 2001
+From: "Jason A. Smith" <smithj4@bnl.gov>
+Date: Fri, 23 Dec 2016 03:19:24 -0500
+Subject: [PATCH] Fix #430 - support Krb5 include(dir)?
+
+Updated the Krb5 lens to support the include(dir)? directives,
+with test case.
+---
+ lenses/krb5.aug            | 9 +++++++--
+ lenses/tests/test_krb5.aug | 9 +++++++++
+ 2 files changed, 16 insertions(+), 2 deletions(-)
+
+diff --git a/lenses/krb5.aug b/lenses/krb5.aug
+index 37778fd8..8936f3a0 100644
+--- a/lenses/krb5.aug
++++ b/lenses/krb5.aug
+@@ -151,8 +151,13 @@ let kdc =
+ let pam =
+   simple_section "pam" name_re
+ 
+-let lns = (comment|empty)* .
++let includes = Build.key_value_line /include(dir)?/ Sep.space (store Rx.fspath)
++
++let lns = (comment|empty|includes)* .
+   (libdefaults|login|appdefaults|realms|domain_realm
+   |logging|capaths|dbdefaults|dbmodules|instance_mapping|kdc|pam)*
+ 
+-let xfm = transform lns (incl "/etc/krb5.conf")
++let filter = (incl "/etc/krb5.conf.d/*.conf")
++           . (incl "/etc/krb5.conf")
++
++let xfm = transform lns filter
+diff --git a/lenses/tests/test_krb5.aug b/lenses/tests/test_krb5.aug
+index e17a659a..743bb375 100644
+--- a/lenses/tests/test_krb5.aug
++++ b/lenses/tests/test_krb5.aug
+@@ -1020,3 +1020,12 @@ default_ccache_name = KEYRING:persistent:%{uid}\n" =
+   { "libdefaults"
+     {  }
+     { "default_ccache_name" = "KEYRING:persistent:%{uid}" } }
++
++(* Include(dir) test *)
++let include_test = "include /etc/krb5.other_conf.d/other.conf
++includedir /etc/krb5.conf.d/
++"
++
++test Krb5.lns get include_test =
++  { "include" = "/etc/krb5.other_conf.d/other.conf" }
++  { "includedir" = "/etc/krb5.conf.d/" }
+-- 
+2.13.6
+

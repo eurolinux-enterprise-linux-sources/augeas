@@ -1,0 +1,1750 @@
+From c93dc5ca4c87f38772c98e3134ddc6662a98bc02 Mon Sep 17 00:00:00 2001
+From: Dominic Cleal <dcleal@redhat.com>
+Date: Fri, 12 Jun 2015 11:09:09 +0100
+Subject: [PATCH] Dhcpd: revert Dhcpd module to 1.1.0-compatible, add Dhcpd_140
+
+In order to keep the default sshd config lens compatible with 1.1.0,
+the lens from 1.4.0 has been kept in the Dhcpd_140 module and is not
+loaded by default.  Use aug_transform, augtool --transform etc. to use
+it instead of Dhcpd.
+---
+ lenses/dhcpd.aug                | 182 +++---------
+ lenses/dhcpd_140.aug            | 512 +++++++++++++++++++++++++++++++++
+ lenses/tests/test_dhcpd.aug     | 214 +-------------
+ lenses/tests/test_dhcpd_140.aug | 606 ++++++++++++++++++++++++++++++++++++++++
+ tests/Makefile.am               |   1 +
+ 5 files changed, 1152 insertions(+), 363 deletions(-)
+ create mode 100644 lenses/dhcpd_140.aug
+ create mode 100644 lenses/tests/test_dhcpd_140.aug
+
+diff --git a/lenses/dhcpd.aug b/lenses/dhcpd.aug
+index f84a409c..21a5ce60 100644
+--- a/lenses/dhcpd.aug
++++ b/lenses/dhcpd.aug
+@@ -65,12 +65,12 @@ let eos               = comment?
+ let sep_spc           = del /[ \t]+/ " "
+ let sep_osp           = del /[ \t]*/ ""
+ let sep_scl           = del /[ \t]*;([ \t]*\n)*/ ";\n"
+-let sep_obr           = del /[ \t\n]*\{([ \t]*\n)*/ " {\n"
++let sep_obr           = del /[ \t]*\{([ \t]*\n)*/ " {\n"
+ let sep_cbr           = del /[ \t]*\}([ \t]*\n)*/ "}\n"
+ let sep_com           = del /[ \t\n]*,[ \t\n]*/ ", "
+ let sep_slh           = del "\/" "/"
+ let sep_col           = del ":" ":"
+-let sep_eq            = del /[ \t\n]*=[ \t\n]*/ "="
++let sep_eq            = del /[ \t]*=[ \t]*/ "="
+ let scl               = del ";" ";"
+ 
+ (* Define basic types *)
+@@ -94,11 +94,6 @@ let ip                = Rx.ipv4
+   let bare = del qchar? "" . store (bchar+) . del qchar? ""
+   let quote = Quote.do_quote (store (bchar* . /[ \t'\/]/ . bchar*)+)
+   let dquote = Quote.do_dquote (store (bchar+))
+-  (* these two are for special cases.  bare_to_scl is for any bareword that is
+-   * space or semicolon terminated.  dquote_any allows almost any character in
+-   * between the quotes. *)
+-  let bare_to_scl = Quote.do_dquote_opt (store /[^" \t\n;]+/)
+-  let dquote_any = Quote.do_dquote (store /[^"\n]*[ \t]+[^"\n]*/)
+ 
+ let sto_to_spc        = store /[^\\#,;\{\}" \t\n]+|"[^\\#"\n]+"/
+ let sto_to_scl        = store /[^ \t;][^;\n=]+[^ \t;]|[^ \t;=]+/
+@@ -197,7 +192,6 @@ let stmt_string_re    = "ddns-update-style"
+                       | "use-lease-addr-for-default-route"
+                       | "vendor-option-space"
+                       | "primary"
+-                      | "omapi-key"
+ 
+ let stmt_string_tpl (kw:regexp) (l:lens) = [ indent
+                         . key kw
+@@ -230,51 +224,26 @@ let stmt_range        = [ indent
+ let stmt_hardware     = [ indent
+                         . key "hardware"
+                         . sep_spc
+-                        . [ label "type" . store /ethernet|tokenring|fddi/ ]
++                        . [ label "type" . store /ethernet|tokenring/ ]
+                         . sep_spc
+                         . [ label "address" . store /[a-fA-F0-9:-]+/ ]
+                         . sep_scl
+                         . eos ]
+ 
+ (************************************************************************
+- *                         SET STATEMENTS
+- *************************************************************************)
+-let stmt_set          = [ indent
+-                        . key "set"
+-                        . sep_spc
+-                        . store word
+-                        . sep_spc
+-                        . Sep.equal
+-                        . sep_spc
+-                        . [ label "value" . sto_to_scl ]
+-                        . sep_scl
+-                        . eos ]
+-
+-(************************************************************************
+  *                         OPTION STATEMENTS
+  *************************************************************************)
+ (* The general case is considering options as a list *)
+ 
++let stmt_option_code  = [ label "label" . store word . sep_spc ]
++                        . [ key "code" . sep_spc . store word ]
++                        . sep_eq
++                        . [ label "type" . store word ]
+ 
+-let stmt_option_value = /((array of[ \t]+)?(((un)?signed[ \t]+)?integer (8|16|32)|string|ip6?-address|boolean|domain-list|text)|encapsulate [A-Za-z0-9_.-]+)/
+ 
+ let stmt_option_list  = ([ label "arg" . bare ] | [ label "arg" . quote ])
+                         . ( sep_com . ([ label "arg" . bare ] | [ label "arg" . quote ]))*
+ 
+-let del_trail_spc = del /[ \t\n]*/ ""
+-
+-let stmt_record = counter "record" . Util.del_str "{"
+-                . sep_spc
+-                . ([seq "record" . store stmt_option_value . sep_com]*
+-                .  [seq "record" . store stmt_option_value . del_trail_spc])?
+-                . Util.del_str "}"
+-
+-let stmt_option_code  = [ label "label" . store word . sep_spc ]
+-                        . [ key "code" . sep_spc . store word ]
+-                        . sep_eq
+-                        . ([ label "type" . store stmt_option_value ]
+-                          |[ label "record" . stmt_record ]) 
+-
+ let stmt_option_basic = [ key word . sep_spc . stmt_option_list ]
+ let stmt_option_extra = [ key word . sep_spc . store /true|false/ . sep_spc . stmt_option_list ]
+ 
+@@ -302,13 +271,10 @@ let stmt_option = stmt_option1 | stmt_option2
+ (* this statement is not well documented in the manual dhcpd.conf
+    we support basic use case *)
+ 
+-let stmt_subclass = [ indent . key "subclass" . sep_spc 
+-                      . ( [ label "name" .  bare_to_scl ]|[ label "name" .  dquote_any ] )
+-                      . sep_spc 
+-                      . ( [ label "value" . bare_to_scl ]|[ label "value" . dquote_any ] ) 
+-                      . sep_scl 
+-                      . eos ]
+-
++let stmt_subclass = [ indent . key "subclass" . sep_spc .
++                      ([ label "name" . quote ]|
++                       [ label "name" . bare ]) . sep_spc .
++                       [ label "value" . bare ] . sep_scl . eos ]
+ 
+ (************************************************************************
+  *                         ALLOW/DENY STATEMENTS
+@@ -316,18 +282,10 @@ let stmt_subclass = [ indent . key "subclass" . sep_spc
+ (* We have to use special key for allow/deny members of
+   to avoid ambiguity in the put direction *)
+ 
+-let allow_deny_re     = /unknown(-|[ ]+)clients/
+-                      | /known(-|[ ]+)clients/
+-                      | /all[ ]+clients/
++let allow_deny_re     = "unknown-clients"
+                       | /dynamic[ ]+bootp[ ]+clients/
+                       | /authenticated[ ]+clients/
+                       | /unauthenticated[ ]+clients/
+-                      | "bootp"
+-                      | "booting"
+-                      | "duplicates"
+-                      | "declines"
+-                      | "client-updates"
+-                      | "leasequery"
+ 
+ let stmt_secu_re      = "allow"
+                       | "deny"
+@@ -335,17 +293,9 @@ let stmt_secu_re      = "allow"
+ let del_allow = del /allow[ ]+members[ ]+of/ "allow members of"
+ let del_deny  = del /deny[ \t]+members[ \t]+of/ "deny members of"
+ 
+-(* bare is anything but whitespace, quote marks or semicolon.
+- * technically this should be locked down to mostly alphanumerics, but the
+- * idea right now is just to make things work.  Also ideally I would use
+- * dquote_space but I had a whale of a time with it.  It doesn't like
+- * semicolon termination and my attempts to fix that led me to 3 hours of
+- * frustration and back to this :)
+- *)
+ let stmt_secu_tpl (l:lens) (s:string) =
+-                  [ indent . l . sep_spc . label s . bare_to_scl . sep_scl . eos ] |
+-                  [ indent . l . sep_spc . label s . dquote_any . sep_scl . eos ]
+-
++                  [ indent . l . sep_spc . label s . bare . sep_scl . eos ] |
++                  [ indent . l . sep_spc . label s . quote . sep_scl . eos ]
+ 
+ let stmt_secu         = [ indent . key stmt_secu_re . sep_spc .
+                           store allow_deny_re . sep_scl . eos ] |
+@@ -356,62 +306,17 @@ let stmt_secu         = [ indent . key stmt_secu_re . sep_spc .
+  *                         MATCH STATEMENTS
+  *************************************************************************)
+ 
++let sto_fct = store (word . /[ \t]*\([^)]*\)/)
++let sto_option = store (/option[ ]+/ . word)
+ let sto_com = /[^ \t\n,\(\)][^,\(\)]*[^ \t\n,\(\)]|[^ \t\n,\(\)]+/ | word . /[ \t]*\([^)]*\)/
+-(* this is already the most complicated part of this module and it's about to
+- * get worse.  match statements can be way more complicated than this
+- *
+- * examples:
+- *      using or:
+- *      match if ((option vendor-class-identifier="Banana Bready") or (option vendor-class-identifier="Cherry Sunfire"));
+- *      unneeded parenthesis:
+- *      match if (option vendor-class-identifier="Hello");
+- *
+- *      and of course the fact that the above two rules used one of infinately
+- *      many potential options instead of a builtin function.
+- *)
+-(* sto_com doesn't support quoted strings as arguments.  It also doesn't
+-   support single arguments (needs to match a comma) It will need to be
+-   updated for lcase, ucase and log to be workable.
+-
+-   it also doesn't support no arguments, so gethostbyname() doesn't work.
+-
+-   option and config-option are considered operators.  They should be matched
+-   in stmt_entry but also available under "match if" and "if" conditionals
+-   leased-address, host-decl-name, both take no args and return a value.  We
+-   might need to treat them as variable names in the parser.
+-
+-   things like this may be near-impossible to parse even with recursion
+-   because we have no way of knowing when or if a subfunction takes arguments
+-   set ClientMac = binary-to-ascii(16, 8, ":", substring(hardware, 1, 6));
+-
+-   even if we could parse it, they could get arbitrarily complicated like:
+-   binary-to-ascii(16, 8, ":", substring(hardware, 1, 6) and substring(hardware, 2, 3));
+-
+-   so at some point we may need to programmatically knock it off and tell
+-   people to put weird stuff in an include file that augeas doesn't parse.
+-
+-   the other option is to change the API to not parse the if statement at all,
+-   just pull in the conditional as a string.
+- *)
+-
+-let fct_re = "substring" | "binary-to-ascii" | "suffix" | "lcase" | "ucase"
+-             | "gethostbyname" | "packet"
+-             | "concat" | "reverse" | "encode-int"
+-             | "extract-int" | "lease-time" | "client-state" | "exists" | "known" | "static"
+-             | "pick-first-value" | "log" | "execute"
+-
+-(* not needs to be different because it's a negation of whatever happens next *)
+-let op_re = "~="|"="|"~~"|"and"|"or"
++let fct_re = "substring" | "binary-to-ascii"
+ 
+ let fct_args = [ label "args" . dels "(" . sep_osp .
+                  ([ label "arg" . store sto_com ] . [ label "arg" . sep_com . store sto_com ]+) .
+                         sep_osp . dels ")" ]
+ 
+-let stmt_match_ifopt = [ dels "if" . sep_spc . key "option" . sep_spc . store word .
+-                      sep_eq . ([ label "value" . bare_to_scl ]|[ label "value" . dquote_any ]) ]
+-
+-let stmt_match_func = [ store fct_re . sep_osp . label "function" . fct_args ] .
+-                      sep_eq . ([ label "value" . bare_to_scl ]|[ label "value" . dquote_any ])
++let stmt_match_if = [ dels "if" . sep_spc . store fct_re . sep_osp . label "function" . fct_args ] .
++                      sep_eq . ([ label "value" . bare ]|[ label "value" . quote ])
+ 
+ let stmt_match_pfv = [ label "function" . store "pick-first-value" . sep_spc .
+                        dels "(" . sep_osp .
+@@ -422,7 +327,7 @@ let stmt_match_pfv = [ label "function" . store "pick-first-value" . sep_spc .
+ 
+ let stmt_match_tpl (l:lens) = [ indent . key "match" . sep_spc . l . sep_scl . eos ]
+ 
+-let stmt_match = stmt_match_tpl (dels "if" . sep_spc . stmt_match_func | stmt_match_pfv | stmt_match_ifopt)
++let stmt_match = stmt_match_tpl (stmt_match_if | stmt_match_pfv )
+ 
+ (************************************************************************
+  *                         BLOCK STATEMENTS
+@@ -438,11 +343,12 @@ let stmt_entry        =   stmt_secu
+                         | stmt_noarg
+                         | stmt_match
+                         | stmt_subclass
+-                        | stmt_set
+                         | empty
+                         | comment
+ 
+-let stmt_block_noarg_re = "pool" | "group"
++let stmt_block_noarg_re = "pool"
++                        | "group"
++                        | "allow-update"
+ 
+ let stmt_block_noarg (body:lens)
+                         = [ indent
+@@ -456,14 +362,16 @@ let stmt_block_arg_re = "host"
+                       | "shared-network"
+                       | /failover[ ]+peer/
+                       | "zone"
+-                      | "group"
+-                      | "on"
++                      | "key"
+ 
+ let stmt_block_arg (body:lens)
+-                      = ([ indent . key stmt_block_arg_re . sep_spc . dquote_any . sep_obr . body* . sep_cbr ]
+-                         |[ indent . key stmt_block_arg_re . sep_spc . bare_to_scl . sep_obr . body* . sep_cbr ]
+-                         |[ indent . del /key/ "key" . label "key_block" . sep_spc . dquote_any . sep_obr . body* . sep_cbr . del /(;([ \t]*\n)*)?/ ""  ]
+-                         |[ indent . del /key/ "key" . label "key_block" . sep_spc . bare_to_scl . sep_obr . body* . sep_cbr . del /(;([ \t]*\n)*)?/ "" ])
++                      = [ indent
++                        . key stmt_block_arg_re
++                        . sep_spc
++                        . sto_to_spc
++                        . sep_obr
++                        . body*
++                        . sep_cbr ]
+ 
+ let stmt_block_subnet (body:lens)
+                       = [ indent
+@@ -476,37 +384,11 @@ let stmt_block_subnet (body:lens)
+                         . body*
+                         . sep_cbr ]
+ 
+-let conditional (body:lens) =
+-     let condition         = /[^{ \r\t\n][^{\n]*[^{ \r\t\n]|[^{ \t\n\r]/
+-  in let elsif = [ indent
+-                 . Build.xchgs "elsif" "@elsif"
+-                 . sep_spc
+-                 . store condition
+-                 . sep_obr
+-                 . body*
+-                 . sep_cbr ]
+-  in let else = [  indent
+-                 . Build.xchgs "else" "@else"
+-                 . sep_obr
+-                 . body*
+-                 . sep_cbr ]
+-  in [ indent
+-     . Build.xchgs "if" "@if"
+-     . sep_spc
+-     . store condition
+-     . sep_obr
+-     . body*
+-     . sep_cbr
+-     . elsif*
+-     . else? ]
+-
+-
+ let all_block (body:lens) =
+     let lns1 = stmt_block_subnet body in
+     let lns2 = stmt_block_arg body in
+     let lns3 = stmt_block_noarg body in
+-    let lns4 = conditional body in
+-    (lns1 | lns2 | lns3 | lns4 | stmt_entry)
++    (lns1 | lns2 | lns3 | stmt_entry)
+ 
+ let rec lns_staging = stmt_entry|all_block lns_staging
+ let lns = (lns_staging)*
+diff --git a/lenses/dhcpd_140.aug b/lenses/dhcpd_140.aug
+new file mode 100644
+index 00000000..c9072990
+--- /dev/null
++++ b/lenses/dhcpd_140.aug
+@@ -0,0 +1,512 @@
++(*
++Module: Dhcpd_140
++  BIND dhcp 3 server configuration module for Augeas
++
++  This module is compatible with Augeas 1.4.0, but is not loaded by default.
++
++Author: Francis Giraldeau <francis.giraldeau@usherbrooke.ca>
++
++About: Reference
++  Reference: manual of dhcpd.conf and dhcp-eval
++  Follow dhclient module for tree structure
++
++About: License
++    This file is licensed under the GPL.
++
++About: Lens Usage
++  Sample usage of this lens in augtool
++
++  Directive without argument.
++  Set this dhcpd server authoritative on the domain.
++  > clear /files/etc/dhcp3/dhcpd.conf/authoritative
++
++  Directives with integer or string argument.
++  Set max-lease-time to one hour:
++  > set /files/etc/dhcp3/dhcpd.conf/max-lease-time 3600
++
++  Options are declared as a list, even for single values.
++  Set the domain of the network:
++  > set /files/etc/dhcp3/dhcpd.conf/option/domain-name/arg example.org
++  Set two name server:
++  > set /files/etc/dhcp3/dhcpd.conf/option/domain-name-servers/arg[1] foo.example.org
++  > set /files/etc/dhcp3/dhcpd.conf/option/domain-name-servers/arg[2] bar.example.org
++
++  Create the subnet 172.16.0.1 with 10 addresses:
++  > clear /files/etc/dhcp3/dhcpd.conf/subnet[last() + 1]
++  > set /files/etc/dhcp3/dhcpd.conf/subnet[last()]/network 172.16.0.0
++  > set /files/etc/dhcp3/dhcpd.conf/subnet[last()]/netmask 255.255.255.0
++  > set /files/etc/dhcp3/dhcpd.conf/subnet[last()]/range/from 172.16.0.10
++  > set /files/etc/dhcp3/dhcpd.conf/subnet[last()]/range/to 172.16.0.20
++
++  Create a new group "foo" with one static host. Nodes type and address are ordered.
++  > ins group after /files/etc/dhcp3/dhcpd.conf/subnet[network='172.16.0.0']/*[last()]
++  > set /files/etc/dhcp3/dhcpd.conf/subnet[network='172.16.0.0']/group[last()]/host foo
++  > set /files/etc/dhcp3/dhcpd.conf/subnet[network='172.16.0.0']/group[host='foo']/host/hardware/type "ethernet"
++  > set /files/etc/dhcp3/dhcpd.conf/subnet[network='172.16.0.0']/group[host='foo']/host/hardware/address "00:00:00:aa:bb:cc"
++  > set /files/etc/dhcp3/dhcpd.conf/subnet[network='172.16.0.0']/group[host='foo']/host/fixed-address 172.16.0.100
++
++About: Configuration files
++  This lens applies to /etc/dhcpd3/dhcpd.conf. See <filter>.
++*)
++
++module Dhcpd_140 =
++
++(************************************************************************
++ *                           USEFUL PRIMITIVES
++ *************************************************************************)
++let dels (s:string)   = del s s
++let eol               = Util.eol
++let comment           = Util.comment
++let empty             = Util.empty
++let indent            = Util.indent
++let eos               = comment?
++
++(* Define separators *)
++let sep_spc           = del /[ \t]+/ " "
++let sep_osp           = del /[ \t]*/ ""
++let sep_scl           = del /[ \t]*;([ \t]*\n)*/ ";\n"
++let sep_obr           = del /[ \t\n]*\{([ \t]*\n)*/ " {\n"
++let sep_cbr           = del /[ \t]*\}([ \t]*\n)*/ "}\n"
++let sep_com           = del /[ \t\n]*,[ \t\n]*/ ", "
++let sep_slh           = del "\/" "/"
++let sep_col           = del ":" ":"
++let sep_eq            = del /[ \t\n]*=[ \t\n]*/ "="
++let scl               = del ";" ";"
++
++(* Define basic types *)
++let word              = /[A-Za-z0-9_.-]+(\[[0-9]+\])?/
++let ip                = Rx.ipv4
++
++(* Define fields *)
++
++(* adapted from sysconfig.aug *)
++  (* Chars allowed in a bare string *)
++  let bchar = /[^ \t\n"'\\{}#,()\/]|\\\\./
++  let qchar = /["']/  (* " *)
++
++  (* We split the handling of right hand sides into a few cases:
++   *   bare  - strings that contain no spaces, optionally enclosed in
++   *           single or double quotes
++   *   dquot - strings that contain at least one space, apostrophe or slash
++   *           which must be enclosed in double quotes
++   *   squot - strings that contain an unescaped double quote
++   *)
++  let bare = del qchar? "" . store (bchar+) . del qchar? ""
++  let quote = Quote.do_quote (store (bchar* . /[ \t'\/]/ . bchar*)+)
++  let dquote = Quote.do_dquote (store (bchar+))
++  (* these two are for special cases.  bare_to_scl is for any bareword that is
++   * space or semicolon terminated.  dquote_any allows almost any character in
++   * between the quotes. *)
++  let bare_to_scl = Quote.do_dquote_opt (store /[^" \t\n;]+/)
++  let dquote_any = Quote.do_dquote (store /[^"\n]*[ \t]+[^"\n]*/)
++
++let sto_to_spc        = store /[^\\#,;\{\}" \t\n]+|"[^\\#"\n]+"/
++let sto_to_scl        = store /[^ \t;][^;\n=]+[^ \t;]|[^ \t;=]+/
++
++let sto_number        = store /[0-9][0-9]*/
++
++(************************************************************************
++ *                         NO ARG STATEMENTS
++ *************************************************************************)
++
++let stmt_noarg_re     =   "authoritative"
++                        | "primary"
++                        | "secondary"
++
++let stmt_noarg        = [ indent
++                        . key stmt_noarg_re
++                        . sep_scl
++                        . eos ]
++
++(************************************************************************
++ *                         INT ARG STATEMENTS
++ *************************************************************************)
++
++let stmt_integer_re   = "default-lease-time"
++                      | "max-lease-time"
++                      | "min-lease-time"
++                      | /lease[ ]+limit/
++                      | "port"
++                      | /peer[ ]+port/
++                      | "max-response-delay"
++                      | "max-unacked-updates"
++                      | "mclt"
++                      | "split"
++                      | /load[ ]+balance[ ]+max[ ]+seconds/
++                      | "max-lease-misbalance"
++                      | "max-lease-ownership"
++                      | "min-balance"
++                      | "max-balance"
++                      | "adaptive-lease-time-threshold"
++                      | "dynamic-bootp-lease-length"
++                      | "local-port"
++                      | "min-sec"
++                      | "omapi-port"
++                      | "ping-timeout"
++                      | "remote-port"
++
++let stmt_integer      = [ indent
++                        . key stmt_integer_re
++                        . sep_spc
++                        . sto_number
++                        . sep_scl
++                        . eos ]
++
++(************************************************************************
++ *                         STRING ARG STATEMENTS
++ *************************************************************************)
++
++let stmt_string_re    = "ddns-update-style"
++                      | "ddns-updates"
++                      | "ddns-hostname"
++                      | "ddns-domainname"
++                      | "ddns-rev-domainname"
++                      | "log-facility"
++                      | "server-name"
++                      | "fixed-address"
++                      | /failover[ ]+peer/
++                      | "use-host-decl-names"
++                      | "next-server"
++                      | "address"
++                      | /peer[ ]+address/
++                      | "type"
++                      | "file"
++                      | "algorithm"
++                      | "secret"
++                      | "key"
++                      | "include"
++                      | "hba"
++                      | "boot-unknown-clients"
++                      | "db-time-format"
++                      | "do-forward-updates"
++                      | "dynamic-bootp-lease-cutoff"
++                      | "get-lease-hostnames"
++                      | "infinite-is-reserved"
++                      | "lease-file-name"
++                      | "local-address"
++                      | "one-lease-per-client"
++                      | "pid-file-name"
++                      | "ping-check"
++                      | "server-identifier"
++                      | "site-option-space"
++                      | "stash-agent-options"
++                      | "update-conflict-detection"
++                      | "update-optimization"
++                      | "update-static-leases"
++                      | "use-host-decl-names"
++                      | "use-lease-addr-for-default-route"
++                      | "vendor-option-space"
++                      | "primary"
++                      | "omapi-key"
++
++let stmt_string_tpl (kw:regexp) (l:lens) = [ indent
++                        . key kw
++                        . sep_spc
++                        . l
++                        . sep_scl
++                        . eos ]
++
++let stmt_string  = stmt_string_tpl stmt_string_re bare
++                 | stmt_string_tpl stmt_string_re quote
++                 | stmt_string_tpl "filename" dquote
++
++(************************************************************************
++ *                         RANGE STATEMENTS
++ *************************************************************************)
++
++let stmt_range        = [ indent
++                        . key "range"
++                        . sep_spc
++                        . [ label "flag" . store /dynamic-bootp/ . sep_spc ]?
++                        . [ label "from" . store ip . sep_spc ]?
++                        . [ label "to" . store ip ]
++                        . sep_scl
++                        . eos ]
++
++(************************************************************************
++ *                         HARDWARE STATEMENTS
++ *************************************************************************)
++
++let stmt_hardware     = [ indent
++                        . key "hardware"
++                        . sep_spc
++                        . [ label "type" . store /ethernet|tokenring|fddi/ ]
++                        . sep_spc
++                        . [ label "address" . store /[a-fA-F0-9:-]+/ ]
++                        . sep_scl
++                        . eos ]
++
++(************************************************************************
++ *                         SET STATEMENTS
++ *************************************************************************)
++let stmt_set          = [ indent
++                        . key "set"
++                        . sep_spc
++                        . store word
++                        . sep_spc
++                        . Sep.equal
++                        . sep_spc
++                        . [ label "value" . sto_to_scl ]
++                        . sep_scl
++                        . eos ]
++
++(************************************************************************
++ *                         OPTION STATEMENTS
++ *************************************************************************)
++(* The general case is considering options as a list *)
++
++
++let stmt_option_value = /((array of[ \t]+)?(((un)?signed[ \t]+)?integer (8|16|32)|string|ip6?-address|boolean|domain-list|text)|encapsulate [A-Za-z0-9_.-]+)/
++
++let stmt_option_list  = ([ label "arg" . bare ] | [ label "arg" . quote ])
++                        . ( sep_com . ([ label "arg" . bare ] | [ label "arg" . quote ]))*
++
++let del_trail_spc = del /[ \t\n]*/ ""
++
++let stmt_record = counter "record" . Util.del_str "{"
++                . sep_spc
++                . ([seq "record" . store stmt_option_value . sep_com]*
++                .  [seq "record" . store stmt_option_value . del_trail_spc])?
++                . Util.del_str "}"
++
++let stmt_option_code  = [ label "label" . store word . sep_spc ]
++                        . [ key "code" . sep_spc . store word ]
++                        . sep_eq
++                        . ([ label "type" . store stmt_option_value ]
++                          |[ label "record" . stmt_record ]) 
++
++let stmt_option_basic = [ key word . sep_spc . stmt_option_list ]
++let stmt_option_extra = [ key word . sep_spc . store /true|false/ . sep_spc . stmt_option_list ]
++
++let stmt_option_body = stmt_option_basic | stmt_option_extra
++
++let stmt_option1  = [ indent
++                        . key "option"
++                        . sep_spc
++                        . stmt_option_body
++                        . sep_scl
++                        . eos ]
++
++let stmt_option2  = [ indent
++                        . dels "option" . label "rfc-code"
++                        . sep_spc
++                        . stmt_option_code
++                        . sep_scl
++                        . eos ]
++
++let stmt_option = stmt_option1 | stmt_option2
++
++(************************************************************************
++ *                         SUBCLASS STATEMENTS
++ *************************************************************************)
++(* this statement is not well documented in the manual dhcpd.conf
++   we support basic use case *)
++
++let stmt_subclass = [ indent . key "subclass" . sep_spc 
++                      . ( [ label "name" .  bare_to_scl ]|[ label "name" .  dquote_any ] )
++                      . sep_spc 
++                      . ( [ label "value" . bare_to_scl ]|[ label "value" . dquote_any ] ) 
++                      . sep_scl 
++                      . eos ]
++
++
++(************************************************************************
++ *                         ALLOW/DENY STATEMENTS
++ *************************************************************************)
++(* We have to use special key for allow/deny members of
++  to avoid ambiguity in the put direction *)
++
++let allow_deny_re     = /unknown(-|[ ]+)clients/
++                      | /known(-|[ ]+)clients/
++                      | /all[ ]+clients/
++                      | /dynamic[ ]+bootp[ ]+clients/
++                      | /authenticated[ ]+clients/
++                      | /unauthenticated[ ]+clients/
++                      | "bootp"
++                      | "booting"
++                      | "duplicates"
++                      | "declines"
++                      | "client-updates"
++                      | "leasequery"
++
++let stmt_secu_re      = "allow"
++                      | "deny"
++
++let del_allow = del /allow[ ]+members[ ]+of/ "allow members of"
++let del_deny  = del /deny[ \t]+members[ \t]+of/ "deny members of"
++
++(* bare is anything but whitespace, quote marks or semicolon.
++ * technically this should be locked down to mostly alphanumerics, but the
++ * idea right now is just to make things work.  Also ideally I would use
++ * dquote_space but I had a whale of a time with it.  It doesn't like
++ * semicolon termination and my attempts to fix that led me to 3 hours of
++ * frustration and back to this :)
++ *)
++let stmt_secu_tpl (l:lens) (s:string) =
++                  [ indent . l . sep_spc . label s . bare_to_scl . sep_scl . eos ] |
++                  [ indent . l . sep_spc . label s . dquote_any . sep_scl . eos ]
++
++
++let stmt_secu         = [ indent . key stmt_secu_re . sep_spc .
++                          store allow_deny_re . sep_scl . eos ] |
++                        stmt_secu_tpl del_allow "allow-members-of" |
++                        stmt_secu_tpl del_deny "deny-members-of"
++
++(************************************************************************
++ *                         MATCH STATEMENTS
++ *************************************************************************)
++
++let sto_com = /[^ \t\n,\(\)][^,\(\)]*[^ \t\n,\(\)]|[^ \t\n,\(\)]+/ | word . /[ \t]*\([^)]*\)/
++(* this is already the most complicated part of this module and it's about to
++ * get worse.  match statements can be way more complicated than this
++ *
++ * examples:
++ *      using or:
++ *      match if ((option vendor-class-identifier="Banana Bready") or (option vendor-class-identifier="Cherry Sunfire"));
++ *      unneeded parenthesis:
++ *      match if (option vendor-class-identifier="Hello");
++ *
++ *      and of course the fact that the above two rules used one of infinately
++ *      many potential options instead of a builtin function.
++ *)
++(* sto_com doesn't support quoted strings as arguments.  It also doesn't
++   support single arguments (needs to match a comma) It will need to be
++   updated for lcase, ucase and log to be workable.
++
++   it also doesn't support no arguments, so gethostbyname() doesn't work.
++
++   option and config-option are considered operators.  They should be matched
++   in stmt_entry but also available under "match if" and "if" conditionals
++   leased-address, host-decl-name, both take no args and return a value.  We
++   might need to treat them as variable names in the parser.
++
++   things like this may be near-impossible to parse even with recursion
++   because we have no way of knowing when or if a subfunction takes arguments
++   set ClientMac = binary-to-ascii(16, 8, ":", substring(hardware, 1, 6));
++
++   even if we could parse it, they could get arbitrarily complicated like:
++   binary-to-ascii(16, 8, ":", substring(hardware, 1, 6) and substring(hardware, 2, 3));
++
++   so at some point we may need to programmatically knock it off and tell
++   people to put weird stuff in an include file that augeas doesn't parse.
++
++   the other option is to change the API to not parse the if statement at all,
++   just pull in the conditional as a string.
++ *)
++
++let fct_re = "substring" | "binary-to-ascii" | "suffix" | "lcase" | "ucase"
++             | "gethostbyname" | "packet"
++             | "concat" | "reverse" | "encode-int"
++             | "extract-int" | "lease-time" | "client-state" | "exists" | "known" | "static"
++             | "pick-first-value" | "log" | "execute"
++
++(* not needs to be different because it's a negation of whatever happens next *)
++let op_re = "~="|"="|"~~"|"and"|"or"
++
++let fct_args = [ label "args" . dels "(" . sep_osp .
++                 ([ label "arg" . store sto_com ] . [ label "arg" . sep_com . store sto_com ]+) .
++                        sep_osp . dels ")" ]
++
++let stmt_match_ifopt = [ dels "if" . sep_spc . key "option" . sep_spc . store word .
++                      sep_eq . ([ label "value" . bare_to_scl ]|[ label "value" . dquote_any ]) ]
++
++let stmt_match_func = [ store fct_re . sep_osp . label "function" . fct_args ] .
++                      sep_eq . ([ label "value" . bare_to_scl ]|[ label "value" . dquote_any ])
++
++let stmt_match_pfv = [ label "function" . store "pick-first-value" . sep_spc .
++                       dels "(" . sep_osp .
++                       [ label "args" .
++                         [ label "arg" . store sto_com ] .
++                         [ sep_com . label "arg" . store sto_com ]+ ] .
++                       dels ")" ]
++
++let stmt_match_tpl (l:lens) = [ indent . key "match" . sep_spc . l . sep_scl . eos ]
++
++let stmt_match = stmt_match_tpl (dels "if" . sep_spc . stmt_match_func | stmt_match_pfv | stmt_match_ifopt)
++
++(************************************************************************
++ *                         BLOCK STATEMENTS
++ *************************************************************************)
++(* Blocks doesn't support comments at the end of the closing bracket *)
++
++let stmt_entry        =   stmt_secu
++                        | stmt_option
++                        | stmt_hardware
++                        | stmt_range
++                        | stmt_string
++                        | stmt_integer
++                        | stmt_noarg
++                        | stmt_match
++                        | stmt_subclass
++                        | stmt_set
++                        | empty
++                        | comment
++
++let stmt_block_noarg_re = "pool" | "group"
++
++let stmt_block_noarg (body:lens)
++                        = [ indent
++                        . key stmt_block_noarg_re
++                        . sep_obr
++                        . body*
++                        . sep_cbr ]
++
++let stmt_block_arg_re = "host"
++                      | "class"
++                      | "shared-network"
++                      | /failover[ ]+peer/
++                      | "zone"
++                      | "group"
++                      | "on"
++
++let stmt_block_arg (body:lens)
++                      = ([ indent . key stmt_block_arg_re . sep_spc . dquote_any . sep_obr . body* . sep_cbr ]
++                         |[ indent . key stmt_block_arg_re . sep_spc . bare_to_scl . sep_obr . body* . sep_cbr ]
++                         |[ indent . del /key/ "key" . label "key_block" . sep_spc . dquote_any . sep_obr . body* . sep_cbr . del /(;([ \t]*\n)*)?/ ""  ]
++                         |[ indent . del /key/ "key" . label "key_block" . sep_spc . bare_to_scl . sep_obr . body* . sep_cbr . del /(;([ \t]*\n)*)?/ "" ])
++
++let stmt_block_subnet (body:lens)
++                      = [ indent
++                        . key "subnet"
++                        . sep_spc
++                        . [ label "network" . store ip ]
++                        . sep_spc
++                        . [ key "netmask" . sep_spc . store ip ]
++                        . sep_obr
++                        . body*
++                        . sep_cbr ]
++
++let conditional (body:lens) =
++     let condition         = /[^{ \r\t\n][^{\n]*[^{ \r\t\n]|[^{ \t\n\r]/
++  in let elsif = [ indent
++                 . Build.xchgs "elsif" "@elsif"
++                 . sep_spc
++                 . store condition
++                 . sep_obr
++                 . body*
++                 . sep_cbr ]
++  in let else = [  indent
++                 . Build.xchgs "else" "@else"
++                 . sep_obr
++                 . body*
++                 . sep_cbr ]
++  in [ indent
++     . Build.xchgs "if" "@if"
++     . sep_spc
++     . store condition
++     . sep_obr
++     . body*
++     . sep_cbr
++     . elsif*
++     . else? ]
++
++
++let all_block (body:lens) =
++    let lns1 = stmt_block_subnet body in
++    let lns2 = stmt_block_arg body in
++    let lns3 = stmt_block_noarg body in
++    let lns4 = conditional body in
++    (lns1 | lns2 | lns3 | lns4 | stmt_entry)
++
++let rec lns_staging = stmt_entry|all_block lns_staging
++let lns = (lns_staging)*
+diff --git a/lenses/tests/test_dhcpd.aug b/lenses/tests/test_dhcpd.aug
+index 0af337c2..96630296 100644
+--- a/lenses/tests/test_dhcpd.aug
++++ b/lenses/tests/test_dhcpd.aug
+@@ -28,9 +28,6 @@ max-lease-time 7200;
+ # network, the authoritative directive should be uncommented.
+ authoritative;
+ 
+-allow booting;
+-allow bootp;
+-
+ # Use this to send dhcp log messages to a different log file (you also
+ # have to hack syslog.conf to complete the redirection).
+ log-facility local7;
+@@ -182,12 +179,7 @@ fixed-address 10.1.1.1;}}" =
+     }
+   }
+ 
+-test lns get "group fan-tas_tic { }" =
+-  { "group" = "fan-tas_tic" }
+-
+ test Dhcpd.stmt_secu get "allow members of \"foo\";" =  { "allow-members-of" = "foo" }
+-test Dhcpd.stmt_secu get "allow booting;" =  { "allow" = "booting" }
+-test Dhcpd.stmt_secu get "allow bootp;" =  { "allow" = "bootp" }
+ test Dhcpd.stmt_option get "option voip-boot-server code 66 = string;" =
+   { "rfc-code"
+     { "label" = "voip-boot-server" }
+@@ -195,30 +187,6 @@ test Dhcpd.stmt_option get "option voip-boot-server code 66 = string;" =
+     { "type" = "string" }
+   }
+ 
+-test Dhcpd.stmt_option get "option special-option code 25 = array of string;" =
+-  { "rfc-code"
+-    { "label" = "special-option" }
+-    { "code" = "25" }
+-    { "type" = "array of string" }
+-  }
+-
+-test Dhcpd.stmt_option get "option special-option code 25 = integer 32;" =
+-  { "rfc-code"
+-    { "label" = "special-option" }
+-    { "code" = "25" }
+-    { "type" = "integer 32" }
+-  }
+-
+-
+-test Dhcpd.stmt_option get "option special-option code 25 = array of integer 32;" =
+-  { "rfc-code"
+-    { "label" = "special-option" }
+-    { "code" = "25" }
+-    { "type" = "array of integer 32" }
+-  }
+-
+-
+-
+ test Dhcpd.lns get "authoritative;
+ log-facility local7;
+ ddns-update-style none;
+@@ -274,7 +242,7 @@ failover peer \"redondance01\" {
+     }
+   }
+   { "next-server" = "10.1.1.1" }
+-  { "failover peer" = "redondance01"
++  { "failover peer" = "\"redondance01\""
+     { "primary" }
+     { "address" = "10.1.1.1" }
+     { "port" = "647" }
+@@ -291,26 +259,6 @@ failover peer \"redondance01\" {
+     { "load balance max seconds" = "3" }
+   }
+ 
+-
+-(* test get and put for record types *)
+-let record_test = "option test_records code 123 = { string, ip-address, integer 32, ip6-address, domain-list };"
+-
+-test Dhcpd.lns get record_test =
+- { "rfc-code"
+-   { "label" = "test_records" }
+-   { "code" = "123" }
+-     { "record"
+-        { "1" = "string" }
+-        { "2" = "ip-address" }
+-        { "3" = "integer 32" }
+-        { "4" = "ip6-address" }
+-        { "5" = "domain-list" }
+-     }
+- }
+-
+-test Dhcpd.lns put record_test after set "/rfc-code[1]/code" "124" = 
+-  "option test_records code 124 = { string, ip-address, integer 32, ip6-address, domain-list };"
+-
+ test Dhcpd.lns get "
+ option CallManager code 150 = ip-address;
+ option slp-directory-agent true 10.1.1.1, 10.2.2.2;
+@@ -386,25 +334,6 @@ test Dhcpd.stmt_match get "match if substring (option dhcp-client-identifier, 1,
+     { "value" = "RAS" }
+   }
+ 
+-test Dhcpd.stmt_match get "match if suffix (option dhcp-client-identifier, 4) = \"RAS\";" =
+-  { "match"
+-    { "function" = "suffix"
+-      { "args"
+-        { "arg" = "option dhcp-client-identifier" }
+-        { "arg" = "4" }
+-      }
+-    }
+-    { "value" = "RAS" }
+-  }
+-
+-test Dhcpd.stmt_match get "match if option vendor-class-identifier=\"RAS\";" =
+-  { "match"
+-    { "option" = "vendor-class-identifier"
+-      { "value" = "RAS" }
+-    }
+-  }
+-
+-
+ test Dhcpd.lns get "match pick-first-value (option dhcp-client-identifier, hardware);" =
+   { "match"
+     { "function" = "pick-first-value"
+@@ -436,26 +365,12 @@ test Dhcpd.stmt_match get "match if binary-to-ascii(16, 32, \"\", substring(hard
+     { "value" = "1525400" }
+   }
+ 
+-test Dhcpd.lns get "subclass allocation-class-1 1:8:0:2b:4c:39:ad;" =
+-  { "subclass"
+-    { "name" = "allocation-class-1" }
+-    { "value" = "1:8:0:2b:4c:39:ad" }
+-  }
+-
+-
+ test Dhcpd.lns get "subclass \"allocation-class-1\" 1:8:0:2b:4c:39:ad;" =
+   { "subclass"
+     { "name" = "allocation-class-1" }
+     { "value" = "1:8:0:2b:4c:39:ad" }
+   }
+ 
+-test Dhcpd.lns get "subclass \"quoted class\" \"quoted value\";" =
+-  { "subclass"
+-    { "name" = "quoted class" }
+-    { "value" = "quoted value" }
+-  }
+-
+-
+ (* overall test *)
+ test Dhcpd.lns put conf after rm "/x" = conf
+ 
+@@ -477,130 +392,3 @@ filename \"pxelinux.0\";
+ test Dhcpd.lns put "subnet 172.16.0.0 netmask 255.255.255.0 {
+ }" after
+   set "subnet/filename" "pxelinux.0" = input311
+-
+-(* GH issue #34: support conditional structures *)
+-let gh34_empty = "if exists dhcp-parameter-request-list {
+-}\n"
+-
+-test Dhcpd.lns get gh34_empty =
+-  { "@if" = "exists dhcp-parameter-request-list" }
+-
+-let gh34_empty_multi = "subnet 192.168.100.0 netmask 255.255.255.0 {
+- if true {
+- } elsif false {
+- } else {
+- }
+-}\n"
+-
+-test Dhcpd.lns get gh34_empty_multi =
+-  { "subnet"
+-    { "network" = "192.168.100.0" }
+-    { "netmask" = "255.255.255.0" }
+-    { "@if" = "true"
+-      { "@elsif" = "false" }
+-      { "@else" } }
+-  }
+-
+-let gh34_simple = "if exists dhcp-parameter-request-list {
+-  default-lease-time 600;
+-  } else {
+-default-lease-time 200;
+-}\n"
+-
+-test Dhcpd.lns get gh34_simple =
+-  { "@if" = "exists dhcp-parameter-request-list"
+-    { "default-lease-time" = "600" }
+-    { "@else"
+-      { "default-lease-time" = "200" } } }
+-
+-test Dhcpd.lns get "omapi-key fookey;" =
+-  { "omapi-key" = "fookey" }
+-
+-(* almost all DHCP groups should support braces starting on the next line *)
+-test Dhcpd.lns get "class introduction
+-{
+-}" =
+-  { "class" = "introduction" }
+-
+-(* equals should work the same *)
+-test Dhcpd.lns get "option test_records code 123 =
+-                             string;" =
+- { "rfc-code"
+-   { "label" = "test_records" }
+-   { "code" = "123" }
+-   { "type" = "string" }
+- }
+-
+-test Dhcpd.lns get "deny members of \"Are things like () allowed?\";" =
+-  { "deny-members-of" = "Are things like () allowed?" }
+-
+-test Dhcpd.lns get "deny unknown clients;" =
+-  { "deny" = "unknown clients" }
+-test Dhcpd.lns get "deny known-clients;" =
+-  { "deny" = "known-clients" }
+-
+-test Dhcpd.lns get "set ClientMac = binary-to-ascii(16, 8, \":\" , substring(hardware, 1, 6));" =
+-  { "set" = "ClientMac"
+-    { "value" = "binary-to-ascii(16, 8, \":\" , substring(hardware, 1, 6))" }
+-  }
+-
+-test Dhcpd.lns get "set myvariable = foo;" =
+-  { "set" = "myvariable"
+-    { "value" = "foo" }
+-  }
+-
+-test Dhcpd.stmt_hardware get "hardware fddi 00:01:02:03:04:05;" =
+-  { "hardware"
+-    { "type" = "fddi" }
+-    { "address" = "00:01:02:03:04:05" }
+-  }
+-
+-test Dhcpd.lns get "on commit
+-{
+-  set test = thing;
+-}" =
+-  { "on" = "commit"
+-    { "set" = "test"
+-      { "value" = "thing" }
+-    }
+-  }
+-
+-(* key block get/put/set test *)
+-let key_tests = "key sample {
+-    algorithm hmac-md5;
+-    secret \"secret==\";
+-}
+-
+-key \"interesting\" { };
+-
+-key \"third key\" {
+-    secret \"two==\";
+-}"
+-
+-test Dhcpd.lns get key_tests =
+-  { "key_block" = "sample"
+-    { "algorithm"  = "hmac-md5" }
+-    { "secret" = "secret==" }
+-  }
+-  { "key_block" = "interesting" }
+-  { "key_block" = "third key"
+-    { "secret" = "two==" }
+-  }
+-
+-test Dhcpd.lns put key_tests after set "/key_block[1]" "sample2" =
+-  "key sample2 {
+-    algorithm hmac-md5;
+-    secret \"secret==\";
+-}
+-
+-key \"interesting\" { };
+-
+-key \"third key\" {
+-    secret \"two==\";
+-}"
+-
+-test Dhcpd.lns get "group \"hello\" { }" =
+-  { "group" = "hello" }
+-
+-test Dhcpd.lns get "class \"testing class with spaces and quotes and ()\" {}" =
+-  { "class" = "testing class with spaces and quotes and ()" }
+diff --git a/lenses/tests/test_dhcpd_140.aug b/lenses/tests/test_dhcpd_140.aug
+new file mode 100644
+index 00000000..9d6fdc88
+--- /dev/null
++++ b/lenses/tests/test_dhcpd_140.aug
+@@ -0,0 +1,606 @@
++module Test_dhcpd_140 =
++
++let lns = Dhcpd_140.lns
++
++let conf = "#
++# Sample configuration file for ISC dhcpd for Debian
++#
++# Attention: If /etc/ltsp/dhcpd.conf exists, that will be used as
++# configuration file instead of this file.
++#
++# $Id: dhcpd.conf,v 1.1.1.1 2002/05/21 00:07:44 peloy Exp $
++#
++
++# The ddns-updates-style parameter controls whether or not the server will
++# attempt to do a DNS update when a lease is confirmed. We default to the
++# behavior of the version 2 packages ('none', since DHCP v2 didn't
++# have support for DDNS.)
++ddns-update-style none;
++
++# option definitions common to all supported networks...
++option domain-name \"example.org\";
++option domain-name-servers ns1.example.org, ns2.example.org;
++
++default-lease-time 600;
++max-lease-time 7200;
++
++# If this DHCP server is the official DHCP server for the local
++# network, the authoritative directive should be uncommented.
++authoritative;
++
++allow booting;
++allow bootp;
++
++# Use this to send dhcp log messages to a different log file (you also
++# have to hack syslog.conf to complete the redirection).
++log-facility local7;
++
++# No service will be given on this subnet, but declaring it helps the
++# DHCP server to understand the network topology.
++
++subnet 10.152.187.0 netmask 255.255.255.0 {
++}
++
++# This is a very basic subnet declaration.
++
++subnet 10.254.239.0 netmask 255.255.255.224 {
++  range 10.254.239.10 10.254.239.20;
++  option routers rtr-239-0-1.example.org, rtr-239-0-2.example.org;
++}
++
++# This declaration allows BOOTP clients to get dynamic addresses,
++# which we don't really recommend.
++
++subnet 10.254.239.32 netmask 255.255.255.224 {
++  range dynamic-bootp 10.254.239.40 10.254.239.60;
++  option broadcast-address 10.254.239.31;
++  option routers rtr-239-32-1.example.org;
++}
++
++# A slightly different configuration for an internal subnet.
++subnet 10.5.5.0 netmask 255.255.255.224 {
++  range 10.5.5.26 10.5.5.30;
++  option domain-name-servers ns1.internal.example.org;
++  option domain-name \"internal.example.org\";
++  option routers 10.5.5.1;
++  option broadcast-address 10.5.5.31;
++  default-lease-time 600;
++  max-lease-time 7200;
++}
++
++# Hosts which require special configuration options can be listed in
++# host statements.   If no address is specified, the address will be
++# allocated dynamically (if possible), but the host-specific information
++# will still come from the host declaration.
++
++host passacaglia {
++  hardware ethernet 0:0:c0:5d:bd:95;
++  filename \"vmunix.passacaglia\";
++  server-name \"toccata.fugue.com\";
++}
++
++# Fixed IP addresses can also be specified for hosts.   These addresses
++# should not also be listed as being available for dynamic assignment.
++# Hosts for which fixed IP addresses have been specified can boot using
++# BOOTP or DHCP.   Hosts for which no fixed address is specified can only
++# be booted with DHCP, unless there is an address range on the subnet
++# to which a BOOTP client is connected which has the dynamic-bootp flag
++# set.
++host fantasia {
++  hardware ethernet 08:00:07:26:c0:a5;
++  fixed-address fantasia.fugue.com;
++}
++
++# You can declare a class of clients and then do address allocation
++# based on that.   The example below shows a case where all clients
++# in a certain class get addresses on the 10.17.224/24 subnet, and all
++# other clients get addresses on the 10.0.29/24 subnet.
++
++#class \"foo\" {
++#  match if substring (option vendor-class-identifier, 0, 4) = \"SUNW\";
++#}
++
++shared-network 224-29 {
++  subnet 10.17.224.0 netmask 255.255.255.0 {
++    option routers rtr-224.example.org;
++  }
++  subnet 10.0.29.0 netmask 255.255.255.0 {
++    option routers rtr-29.example.org;
++  }
++  pool {
++    allow members of \"foo\";
++    range 10.17.224.10 10.17.224.250;
++  }
++  pool {
++    deny members of \"foo\";
++    range 10.0.29.10 10.0.29.230;
++  }
++}
++"
++
++test lns get "authoritative;" = { "authoritative" }
++test lns get "ddns-update-style none;" = { "ddns-update-style" = "none" }
++test lns get "option domain-name \"example.org\";" =
++  { "option"
++    { "domain-name"
++      { "arg" = "example.org" }
++    }
++  }
++
++test lns get "option domain-name-servers ns1.example.org, ns2.example.org;" =
++  { "option"
++    { "domain-name-servers"
++      { "arg" = "ns1.example.org" }
++      { "arg" = "ns2.example.org" }
++    }
++  }
++
++test lns get "default-lease-time 600;" = { "default-lease-time" = "600" }
++test lns get "range 10.254.239.60;" =
++{ "range"
++    { "to" = "10.254.239.60" }
++  }
++
++test lns get "range dynamic-bootp 10.254.239.60;" =
++  { "range"
++    { "flag" = "dynamic-bootp" }
++    { "to" = "10.254.239.60" }
++  }
++
++test lns get "range dynamic-bootp 10.254.239.40 10.254.239.60;" =
++  { "range"
++    { "flag" = "dynamic-bootp" }
++    { "from" = "10.254.239.40" }
++    { "to" = "10.254.239.60" }
++  }
++
++test lns get "subnet 10.152.187.0 netmask 255.255.255.0 {}\n" =
++  { "subnet"
++    { "network" = "10.152.187.0" }
++    { "netmask" = "255.255.255.0" }
++  }
++
++test lns get " pool {
++    pool {
++
++    }
++}
++" =
++  { "pool"
++    { "pool" }
++  }
++
++test lns get "group { host some-host {hardware ethernet 00:00:aa:bb:cc:dd;
++fixed-address 10.1.1.1;}}" =
++  { "group"
++    { "host" = "some-host"
++      { "hardware"
++        { "type" = "ethernet" }
++        { "address" = "00:00:aa:bb:cc:dd" }
++      }
++      { "fixed-address" = "10.1.1.1" }
++    }
++  }
++
++test lns get "group fan-tas_tic { }" =
++  { "group" = "fan-tas_tic" }
++
++test Dhcpd_140.stmt_secu get "allow members of \"foo\";" =  { "allow-members-of" = "foo" }
++test Dhcpd_140.stmt_secu get "allow booting;" =  { "allow" = "booting" }
++test Dhcpd_140.stmt_secu get "allow bootp;" =  { "allow" = "bootp" }
++test Dhcpd_140.stmt_option get "option voip-boot-server code 66 = string;" =
++  { "rfc-code"
++    { "label" = "voip-boot-server" }
++    { "code" = "66" }
++    { "type" = "string" }
++  }
++
++test Dhcpd_140.stmt_option get "option special-option code 25 = array of string;" =
++  { "rfc-code"
++    { "label" = "special-option" }
++    { "code" = "25" }
++    { "type" = "array of string" }
++  }
++
++test Dhcpd_140.stmt_option get "option special-option code 25 = integer 32;" =
++  { "rfc-code"
++    { "label" = "special-option" }
++    { "code" = "25" }
++    { "type" = "integer 32" }
++  }
++
++
++test Dhcpd_140.stmt_option get "option special-option code 25 = array of integer 32;" =
++  { "rfc-code"
++    { "label" = "special-option" }
++    { "code" = "25" }
++    { "type" = "array of integer 32" }
++  }
++
++
++
++test Dhcpd_140.lns get "authoritative;
++log-facility local7;
++ddns-update-style none;
++default-lease-time 21600;
++max-lease-time 43200;
++
++# Additional options for VOIP
++option voip-boot-server code 66 = string;
++option voip-vlan-id code 128 = string;
++" =
++  { "authoritative" }
++  { "log-facility" = "local7" }
++  { "ddns-update-style" = "none" }
++  { "default-lease-time" = "21600" }
++  { "max-lease-time" = "43200"
++    { "#comment" = "Additional options for VOIP" }
++  }
++  { "rfc-code"
++    { "label" = "voip-boot-server" }
++    { "code" = "66" }
++    { "type" = "string" }
++  }
++  { "rfc-code"
++    { "label" = "voip-vlan-id" }
++    { "code" = "128" }
++    { "type" = "string" }
++  }
++
++
++test Dhcpd_140.lns get "
++option domain-name-servers 10.1.1.1, 10.11.2.1, 10.1.3.1;
++next-server 10.1.1.1;
++
++failover peer \"redondance01\" {
++         primary;
++         address 10.1.1.1;
++         port 647;
++         peer address 10.1.1.1;
++         peer port 647;
++         max-response-delay 20;
++         max-unacked-updates 10;
++         mclt 3600;         #comment.
++         split 128;         #comment.
++         load balance max seconds 3;
++       }
++" =
++  {  }
++  { "option"
++    { "domain-name-servers"
++      { "arg" = "10.1.1.1" }
++      { "arg" = "10.11.2.1" }
++      { "arg" = "10.1.3.1" }
++    }
++  }
++  { "next-server" = "10.1.1.1" }
++  { "failover peer" = "redondance01"
++    { "primary" }
++    { "address" = "10.1.1.1" }
++    { "port" = "647" }
++    { "peer address" = "10.1.1.1" }
++    { "peer port" = "647" }
++    { "max-response-delay" = "20" }
++    { "max-unacked-updates" = "10" }
++    { "mclt" = "3600"
++      { "#comment" = "comment." }
++    }
++    { "split" = "128"
++      { "#comment" = "comment." }
++    }
++    { "load balance max seconds" = "3" }
++  }
++
++
++(* test get and put for record types *)
++let record_test = "option test_records code 123 = { string, ip-address, integer 32, ip6-address, domain-list };"
++
++test Dhcpd_140.lns get record_test =
++ { "rfc-code"
++   { "label" = "test_records" }
++   { "code" = "123" }
++     { "record"
++        { "1" = "string" }
++        { "2" = "ip-address" }
++        { "3" = "integer 32" }
++        { "4" = "ip6-address" }
++        { "5" = "domain-list" }
++     }
++ }
++
++test Dhcpd_140.lns put record_test after set "/rfc-code[1]/code" "124" = 
++  "option test_records code 124 = { string, ip-address, integer 32, ip6-address, domain-list };"
++
++test Dhcpd_140.lns get "
++option CallManager code 150 = ip-address;
++option slp-directory-agent true 10.1.1.1, 10.2.2.2;
++option slp-service-scope true \"SLP-GLOBAL\";
++option nds-context \"EXAMPLE\";
++option nds-tree-name \"EXAMPLE\";
++" =
++  {  }
++  { "rfc-code"
++    { "label" = "CallManager" }
++    { "code" = "150" }
++    { "type" = "ip-address" }
++  }
++  { "option"
++    { "slp-directory-agent" = "true"
++      { "arg" = "10.1.1.1" }
++      { "arg" = "10.2.2.2" }
++    }
++  }
++  { "option"
++    { "slp-service-scope" = "true"
++      { "arg" = "SLP-GLOBAL" }
++    }
++  }
++  { "option"
++    { "nds-context"
++      { "arg" = "EXAMPLE" }
++    }
++  }
++  { "option"
++    { "nds-tree-name"
++      { "arg" = "EXAMPLE" }
++    }
++  }
++
++
++test Dhcpd_140.lns get "option voip-vlan-id \"VLAN=1234;\";" =
++  { "option"
++    { "voip-vlan-id"
++      { "arg" = "VLAN=1234;" }
++    }
++  }
++
++test Dhcpd_140.lns get "option domain-name \"x.example.com y.example.com z.example.com\";" =
++  { "option"
++    { "domain-name"
++      { "arg" = "x.example.com y.example.com z.example.com" }
++    }
++  }
++
++test Dhcpd_140.lns get "include \"/etc/dhcpd.master\";" =
++  { "include" = "/etc/dhcpd.master" }
++
++test Dhcpd_140.lns put "\n" after set "/include" "/etc/dhcpd.master" =
++  "\ninclude \"/etc/dhcpd.master\";\n"
++
++test Dhcpd_140.fct_args get "(option dhcp-client-identifier, 1, 3)" =
++  { "args"
++    { "arg" = "option dhcp-client-identifier" }
++    { "arg" = "1" }
++    { "arg" = "3" }
++  }
++
++test Dhcpd_140.stmt_match get "match if substring (option dhcp-client-identifier, 1, 3) = \"RAS\";" =
++  { "match"
++    { "function" = "substring"
++      { "args"
++        { "arg" = "option dhcp-client-identifier" }
++        { "arg" = "1" }
++        { "arg" = "3" }
++      }
++    }
++    { "value" = "RAS" }
++  }
++
++test Dhcpd_140.stmt_match get "match if suffix (option dhcp-client-identifier, 4) = \"RAS\";" =
++  { "match"
++    { "function" = "suffix"
++      { "args"
++        { "arg" = "option dhcp-client-identifier" }
++        { "arg" = "4" }
++      }
++    }
++    { "value" = "RAS" }
++  }
++
++test Dhcpd_140.stmt_match get "match if option vendor-class-identifier=\"RAS\";" =
++  { "match"
++    { "option" = "vendor-class-identifier"
++      { "value" = "RAS" }
++    }
++  }
++
++
++test Dhcpd_140.lns get "match pick-first-value (option dhcp-client-identifier, hardware);" =
++  { "match"
++    { "function" = "pick-first-value"
++      { "args"
++        { "arg" = "option dhcp-client-identifier" }
++        { "arg" = "hardware"  }
++      }
++    }
++  }
++
++test Dhcpd_140.fct_args get "(16, 32, \"\", substring(hardware, 0, 4))" =
++  { "args"
++    { "arg" = "16" }
++    { "arg" = "32" }
++    { "arg" = "\"\"" }
++    { "arg" = "substring(hardware, 0, 4)" }
++  }
++
++test Dhcpd_140.stmt_match get "match if binary-to-ascii(16, 32, \"\", substring(hardware, 0, 4)) = \"1525400\";" =
++  { "match"
++    { "function" = "binary-to-ascii"
++      { "args"
++        { "arg" = "16" }
++        { "arg" = "32" }
++        { "arg" = "\"\"" }
++        { "arg" = "substring(hardware, 0, 4)" }
++      }
++    }
++    { "value" = "1525400" }
++  }
++
++test Dhcpd_140.lns get "subclass allocation-class-1 1:8:0:2b:4c:39:ad;" =
++  { "subclass"
++    { "name" = "allocation-class-1" }
++    { "value" = "1:8:0:2b:4c:39:ad" }
++  }
++
++
++test Dhcpd_140.lns get "subclass \"allocation-class-1\" 1:8:0:2b:4c:39:ad;" =
++  { "subclass"
++    { "name" = "allocation-class-1" }
++    { "value" = "1:8:0:2b:4c:39:ad" }
++  }
++
++test Dhcpd_140.lns get "subclass \"quoted class\" \"quoted value\";" =
++  { "subclass"
++    { "name" = "quoted class" }
++    { "value" = "quoted value" }
++  }
++
++
++(* overall test *)
++test Dhcpd_140.lns put conf after rm "/x" = conf
++
++(* bug #293: primary should support argument *)
++let input293 = "zone EXAMPLE.ORG. {
++  primary 127.0.0.1;
++}"
++
++test Dhcpd_140.lns get input293 = 
++  { "zone" = "EXAMPLE.ORG."
++    { "primary" = "127.0.0.1" }
++  }
++
++(* bug #311: filename should be quoted *)
++let input311 = "subnet 172.16.0.0 netmask 255.255.255.0 {
++filename \"pxelinux.0\";
++}"
++
++test Dhcpd_140.lns put "subnet 172.16.0.0 netmask 255.255.255.0 {
++}" after
++  set "subnet/filename" "pxelinux.0" = input311
++
++(* GH issue #34: support conditional structures *)
++let gh34_empty = "if exists dhcp-parameter-request-list {
++}\n"
++
++test Dhcpd_140.lns get gh34_empty =
++  { "@if" = "exists dhcp-parameter-request-list" }
++
++let gh34_empty_multi = "subnet 192.168.100.0 netmask 255.255.255.0 {
++ if true {
++ } elsif false {
++ } else {
++ }
++}\n"
++
++test Dhcpd_140.lns get gh34_empty_multi =
++  { "subnet"
++    { "network" = "192.168.100.0" }
++    { "netmask" = "255.255.255.0" }
++    { "@if" = "true"
++      { "@elsif" = "false" }
++      { "@else" } }
++  }
++
++let gh34_simple = "if exists dhcp-parameter-request-list {
++  default-lease-time 600;
++  } else {
++default-lease-time 200;
++}\n"
++
++test Dhcpd_140.lns get gh34_simple =
++  { "@if" = "exists dhcp-parameter-request-list"
++    { "default-lease-time" = "600" }
++    { "@else"
++      { "default-lease-time" = "200" } } }
++
++test Dhcpd_140.lns get "omapi-key fookey;" =
++  { "omapi-key" = "fookey" }
++
++(* almost all DHCP groups should support braces starting on the next line *)
++test Dhcpd_140.lns get "class introduction
++{
++}" =
++  { "class" = "introduction" }
++
++(* equals should work the same *)
++test Dhcpd_140.lns get "option test_records code 123 =
++                             string;" =
++ { "rfc-code"
++   { "label" = "test_records" }
++   { "code" = "123" }
++   { "type" = "string" }
++ }
++
++test Dhcpd_140.lns get "deny members of \"Are things like () allowed?\";" =
++  { "deny-members-of" = "Are things like () allowed?" }
++
++test Dhcpd_140.lns get "deny unknown clients;" =
++  { "deny" = "unknown clients" }
++test Dhcpd_140.lns get "deny known-clients;" =
++  { "deny" = "known-clients" }
++
++test Dhcpd_140.lns get "set ClientMac = binary-to-ascii(16, 8, \":\" , substring(hardware, 1, 6));" =
++  { "set" = "ClientMac"
++    { "value" = "binary-to-ascii(16, 8, \":\" , substring(hardware, 1, 6))" }
++  }
++
++test Dhcpd_140.lns get "set myvariable = foo;" =
++  { "set" = "myvariable"
++    { "value" = "foo" }
++  }
++
++test Dhcpd_140.stmt_hardware get "hardware fddi 00:01:02:03:04:05;" =
++  { "hardware"
++    { "type" = "fddi" }
++    { "address" = "00:01:02:03:04:05" }
++  }
++
++test Dhcpd_140.lns get "on commit
++{
++  set test = thing;
++}" =
++  { "on" = "commit"
++    { "set" = "test"
++      { "value" = "thing" }
++    }
++  }
++
++(* key block get/put/set test *)
++let key_tests = "key sample {
++    algorithm hmac-md5;
++    secret \"secret==\";
++}
++
++key \"interesting\" { };
++
++key \"third key\" {
++    secret \"two==\";
++}"
++
++test Dhcpd_140.lns get key_tests =
++  { "key_block" = "sample"
++    { "algorithm"  = "hmac-md5" }
++    { "secret" = "secret==" }
++  }
++  { "key_block" = "interesting" }
++  { "key_block" = "third key"
++    { "secret" = "two==" }
++  }
++
++test Dhcpd_140.lns put key_tests after set "/key_block[1]" "sample2" =
++  "key sample2 {
++    algorithm hmac-md5;
++    secret \"secret==\";
++}
++
++key \"interesting\" { };
++
++key \"third key\" {
++    secret \"two==\";
++}"
++
++test Dhcpd_140.lns get "group \"hello\" { }" =
++  { "group" = "hello" }
++
++test Dhcpd_140.lns get "class \"testing class with spaces and quotes and ()\" {}" =
++  { "class" = "testing class with spaces and quotes and ()" }
+diff --git a/tests/Makefile.am b/tests/Makefile.am
+index 387ac7d2..315cac9c 100644
+--- a/tests/Makefile.am
++++ b/tests/Makefile.am
+@@ -58,6 +58,7 @@ lens_tests =			\
+   lens-device_map.sh    \
+   lens-dhclient.sh		\
+   lens-dhcpd.sh		\
++  lens-dhcpd_140.sh		\
+   lens-dns_zone.sh		\
+   lens-dnsmasq.sh		\
+   lens-dovecot.sh		\
+-- 
+2.13.6
+

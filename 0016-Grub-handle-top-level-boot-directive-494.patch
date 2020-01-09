@@ -1,0 +1,55 @@
+From 06b3a79ee2bfdb4ae3675232e82ae3d06bbba353 Mon Sep 17 00:00:00 2001
+From: Pino Toscano <ptoscano@redhat.com>
+Date: Tue, 12 Sep 2017 10:58:46 +0200
+Subject: [PATCH] Grub: handle top-level "boot" directive (#494)
+
+Grub 1 effectively ignores commands in the configuration which work only
+in the command line.  The generated configuration by anaconda included
+also a commented "boot=device" entry at the beginning: uncommenting that
+does not make the configuration invalid, but makes the Grub lens not
+able to parse it.
+
+Since there is no harm in representing a configuration key that will be
+effectively ignored, accept top-level "boot" entries as well.
+---
+ lenses/grub.aug            | 1 +
+ lenses/tests/test_grub.aug | 4 ++--
+ 2 files changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/lenses/grub.aug b/lenses/grub.aug
+index c52d16c6..9866f3f7 100644
+--- a/lenses/grub.aug
++++ b/lenses/grub.aug
+@@ -148,6 +148,7 @@ module Grub =
+                      | kw_menu_arg "foreground"
+                      | kw_menu_arg "background"
+                      | kw_menu_arg "verbose"
++                     | kw_menu_arg "boot" (* only for CLI, ignored in conf *)
+                      | serial
+                      | terminal
+                      | password_arg
+diff --git a/lenses/tests/test_grub.aug b/lenses/tests/test_grub.aug
+index f022ef72..8a0d9f4a 100644
+--- a/lenses/tests/test_grub.aug
++++ b/lenses/tests/test_grub.aug
+@@ -8,7 +8,7 @@ module Test_grub =
+ #          root (hd0,0)
+ #          kernel /vmlinuz-version ro root=/dev/vg00/lv00
+ #          initrd /initrd-version.img
+-#boot=/dev/sda
++boot=/dev/sda
+ device (hd0) HD(1,800,64000,9895c137-d4b2-4e3b-a93b-dc9ac4)
+ password --md5 $1$M9NLj$p2gs87vwNv48BUu.wAfVw0
+ default=0
+@@ -53,7 +53,7 @@ title othermenu
+     { "#comment" = "root (hd0,0)" }
+     { "#comment" = "kernel /vmlinuz-version ro root=/dev/vg00/lv00" }
+     { "#comment" = "initrd /initrd-version.img" }
+-    { "#comment" = "boot=/dev/sda" }
++    { "boot" = "/dev/sda" }
+     { "device"   = "(hd0)"
+         { "file" = "HD(1,800,64000,9895c137-d4b2-4e3b-a93b-dc9ac4)" } }
+     { "password" = "$1$M9NLj$p2gs87vwNv48BUu.wAfVw0"
+-- 
+2.13.6
+
