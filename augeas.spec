@@ -1,6 +1,6 @@
 Name:           augeas
 Version:        1.0.0
-Release:        5%{?dist}
+Release:        5%{?dist}.1
 Summary:        A library for changing configuration files
 
 Group:          System Environment/Libraries
@@ -18,6 +18,9 @@ Patch1:         augeas-1.0.0-01-d6959e62.patch
 # https://fedorahosted.org/augeas/ticket/332
 # Added upstream after 1.0.0.  Necessary to fix the build in Koji.
 Patch2:         augeas-1.0.0-test-run-issue-332.patch
+
+# CVE-2013-6412, fix strict umask handling, f5b4fc0c
+Patch3:         augeas-1.0.0-cve-2013-6412-umask.patch
 
 BuildRoot:      %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
@@ -57,6 +60,7 @@ The libraries for %{name}.
 %setup -q
 %patch1 -p1
 %patch2 -p1
+%patch3 -p1
 
 %build
 %configure --disable-static
@@ -118,6 +122,9 @@ rm -rf $RPM_BUILD_ROOT
 %{_libdir}/pkgconfig/augeas.pc
 
 %changelog
+* Tue Jan 14 2014 Dominic Cleal <dcleal@redhat.com> - 1.0.0-5.1
+- Fix CVE-2013-6412, incorrect permissions under strict umask (RHBZ#1036079)
+
 * Wed Jun  5 2013 Richard W.M. Jones <rjones@redhat.com> - 1.0.0-5
 - Don't package lenses in tests/ subdirectory.
   related: rhbz#817753
