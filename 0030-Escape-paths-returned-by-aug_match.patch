@@ -1,0 +1,868 @@
+From ba5aa09acdbdff46a2dd50fb82f0f99466eef1d9 Mon Sep 17 00:00:00 2001
+From: David Lutterkort <lutter@redhat.com>
+Date: Wed, 23 Jan 2013 10:33:48 -0800
+Subject: [PATCH 1/3] Escape paths returned by aug_match
+
+Resolves: RHBZ#1186318
+
+---
+
+Shellvars: ignore network configs with ! in their name
+
+NetworkManager would write such files, but that leads to problems during
+aug_init, as the attempt to create the node
+/augeas/files/etc/sysconfig/network-scripts/FILE!NAME will fail as that is
+not a valid path expression
+
+(cherry picked from commit 7923057a906c68b87e3559d251570f2f63239d71)
+
+Shellvars: ignore network configs with brackets in their name
+
+SSIDs containing brackets would cause aug_init failures, as the characters are
+parsed in path expressions.
+
+Fixes ticket #246
+
+(cherry picked from commit 37eb9a2a5ab75a238f5e0123708206712b22f747)
+
+Do not interpret file names as path exprs during load
+
+We used to interpret file names as path expressions at various points in
+the process of loading the tree. That lead to nasty failures if the file
+names contained characters that have a special meaning in path expressions,
+like '!', '[' etc.
+
+When the loading code now creates nodes or looks them up based on filenames
+(e.g. to create the file's top level node in /files or the info node in
+/augeas/files), we now use tree_fpath/tree_fpath_cr to do that.
+
+The workaround introduced into shellvars.aug to fix tiecket #246 is also no
+longer needed.
+
+Fixes https://fedorahosted.org/augeas/ticket/343
+Fixes https://fedorahosted.org/augeas/ticket/333
+Improves on the fix for https://fedorahosted.org/augeas/ticket/246
+
+(cherry picked from commit 3ee7ed7b1b3041264446b747b5546d01fbce486e)
+
+Make tree_unlink safer to use
+
+tree_unlink used to only remove nodes from the tree, leaving the
+possibilities of dangling references from variables stored in the
+symtab. The new incarnation is safer in that it cleans up the symtab first.
+
+(cherry picked from commit 53f916cd0127728355b0f3f216357d4f201d622e)
+
+Move constant 'follow' out of parse_name
+
+(cherry picked from commit 1c28d671a9ba4d0c0ed86a5cfd4bfad545860f0c)
+
+* src/pathx.c (pathx_escape_name): new function
+
+Several characters in a path component are treated special, such as '[' and
+']'; to treat a string containing such characters as a literal path
+component, they need to be escaped with a '\\'.
+
+(cherry picked from commit e4f0a6773481423b971667f5d3c0b4f4e830b3e7)
+
+* src/transform.c (remove_file): do not use path_of_tree
+
+remove_file uses path_of_tree to derive the name of the file that should be
+removed. Since we will change path_of_tree so that it escapes certain
+characters, we need to use a different way to get at the filename.
+
+(cherry picked from commit 04187f6b1b1d1626cefd1f32aeed7e3a106ae425)
+
+Conflicts:
+	src/transform.c
+
+* src/internal.c (path_expand): escape path components as needed
+
+    path_expand, which is used to turn the name of a tree node into a path
+    component, now escapes special characters for path expressions so that the
+    resulting paths can be used to look up that node even if the node name
+    contains special characters.
+
+(cherry picked from commit 73209347daf3b4cc5b739c439cc5e999bf6f01ce)
+---
+ src/augeas.c                                       | 137 ++++++++++++---------
+ src/internal.c                                     |   9 ++
+ src/internal.h                                     |  22 +++-
+ src/pathx.c                                        |  39 +++++-
+ src/transform.c                                    |  82 +++++++-----
+ .../ifcfg-Auto-ALICE-WLAN38_(automatisch)          |   1 +
+ .../ifcfg-Auto_FRITZ!Box_Fon_WLAN_7112             |  14 +++
+ .../network-scripts/ifcfg-weird [!] (used to fail) |   4 +
+ tests/run.tests                                    |   4 +-
+ tests/test-save.c                                  |  53 ++++++++
+ tests/xpath.tests                                  |  22 +++-
+ 11 files changed, 290 insertions(+), 97 deletions(-)
+ create mode 100644 tests/root/etc/sysconfig/network-scripts/ifcfg-Auto-ALICE-WLAN38_(automatisch)
+ create mode 100644 tests/root/etc/sysconfig/network-scripts/ifcfg-Auto_FRITZ!Box_Fon_WLAN_7112
+ create mode 100644 tests/root/etc/sysconfig/network-scripts/ifcfg-weird [!] (used to fail)
+
+diff --git a/src/augeas.c b/src/augeas.c
+index 830dbeb..3c12443 100644
+--- a/src/augeas.c
++++ b/src/augeas.c
+@@ -140,6 +140,44 @@ struct tree *tree_path_cr(struct tree *tree, int n, ...) {
+     return tree;
+ }
+ 
++static struct tree *tree_fpath_int(struct augeas *aug, const char *fpath,
++                                   bool create) {
++    int r;
++    char *steps = NULL, *step = NULL;
++    size_t nsteps = 0;
++    struct tree *result = NULL;
++
++    r = argz_create_sep(fpath, '/', &steps, &nsteps);
++    ERR_NOMEM(r < 0, aug);
++    result = aug->origin;
++    while ((step = argz_next(steps, nsteps, step))) {
++        if (create) {
++            result = tree_child_cr(result, step);
++            ERR_THROW(result == NULL, aug, AUG_ENOMEM,
++                      "while searching %s: can not create %s", fpath, step);
++        } else {
++            /* Lookup only */
++            result = tree_child(result, step);
++            if (result == NULL)
++                goto done;
++        }
++    }
++ done:
++    free(steps);
++    return result;
++ error:
++    result = NULL;
++    goto done;
++}
++
++struct tree *tree_fpath(struct augeas *aug, const char *fpath) {
++    return tree_fpath_int(aug, fpath, false);
++}
++
++struct tree *tree_fpath_cr(struct augeas *aug, const char *fpath) {
++    return tree_fpath_int(aug, fpath, true);
++}
++
+ struct tree *tree_find(struct augeas *aug, const char *path) {
+     struct pathx *p = NULL;
+     struct tree *result = NULL;
+@@ -359,7 +397,7 @@ static struct tree *tree_from_transform(struct augeas *aug,
+     return txfm;
+  error:
+     free(v);
+-    tree_unlink(txfm);
++    tree_unlink(aug, txfm);
+     return NULL;
+ }
+ 
+@@ -598,6 +636,37 @@ struct augeas *aug_init(const char *root, const char *loadpath,
+     return result;
+ }
+ 
++/* Free one tree node */
++static void free_tree_node(struct tree *tree) {
++    if (tree == NULL)
++        return;
++
++    if (tree->span != NULL)
++        free_span(tree->span);
++    free(tree->label);
++    free(tree->value);
++    free(tree);
++}
++
++/* Only unlink; assume we know TREE is not in the symtab */
++static int tree_unlink_raw(struct tree *tree) {
++    int result = 0;
++
++    assert (tree->parent != NULL);
++    list_remove(tree, tree->parent->children);
++    tree_mark_dirty(tree->parent);
++    result = free_tree(tree->children) + 1;
++    free_tree_node(tree);
++    return result;
++}
++
++int tree_unlink(struct augeas *aug, struct tree *tree) {
++    if (tree == NULL)
++        return 0;
++    pathx_symtab_remove_descendants(aug->symtab, tree);
++    return tree_unlink_raw(tree);
++}
++
+ void tree_unlink_children(struct augeas *aug, struct tree *tree) {
+     if (tree == NULL)
+         return;
+@@ -605,7 +674,7 @@ void tree_unlink_children(struct augeas *aug, struct tree *tree) {
+     pathx_symtab_remove_descendants(aug->symtab, tree);
+ 
+     while (tree->children != NULL)
+-        tree_unlink(tree->children);
++        tree_unlink_raw(tree->children);
+ }
+ 
+ static void tree_mark_files(struct tree *tree) {
+@@ -625,8 +694,8 @@ static void tree_rm_dirty_files(struct augeas *aug, struct tree *tree) {
+         return;
+ 
+     if ((p = tree_child(tree, "path")) != NULL) {
+-        aug_rm(aug, p->value);
+-        tree_unlink(tree);
++        tree_unlink(aug, tree_fpath(aug, p->value));
++        tree_unlink(aug, tree);
+     } else {
+         struct tree *c = tree->children;
+         while (c != NULL) {
+@@ -650,7 +719,7 @@ static void tree_rm_dirty_leaves(struct augeas *aug, struct tree *tree,
+     }
+ 
+     if (tree != protect && tree->children == NULL)
+-        tree_unlink(tree);
++        tree_unlink(aug, tree);
+ }
+ 
+ int aug_load(struct augeas *aug) {
+@@ -802,9 +871,7 @@ static void record_var_meta(struct augeas *aug, const char *name,
+     struct tree *tree = tree_path_cr(aug->origin, 2, s_augeas, s_vars);
+     ERR_NOMEM(tree == NULL, aug);
+     if (expr == NULL) {
+-        tree = tree_child(tree, name);
+-        if (tree != NULL)
+-            tree_unlink(tree);
++        tree_unlink(aug, tree_child(tree, name));
+     } else {
+         tree = tree_child_cr(tree, name);
+         ERR_NOMEM(tree == NULL, aug);
+@@ -1052,18 +1119,6 @@ struct tree *make_tree_origin(struct tree *root) {
+     return origin;
+ }
+ 
+-/* Free one tree node */
+-static void free_tree_node(struct tree *tree) {
+-    if (tree == NULL)
+-        return;
+-
+-    if (tree->span != NULL)
+-        free_span(tree->span);
+-    free(tree->label);
+-    free(tree->value);
+-    free(tree);
+-}
+-
+ /* Recursively free the whole tree TREE and all its siblings */
+ int free_tree(struct tree *tree) {
+     int cnt = 0;
+@@ -1079,17 +1134,6 @@ int free_tree(struct tree *tree) {
+     return cnt;
+ }
+ 
+-int tree_unlink(struct tree *tree) {
+-    int result = 0;
+-
+-    assert (tree->parent != NULL);
+-    list_remove(tree, tree->parent->children);
+-    tree_mark_dirty(tree->parent);
+-    result = free_tree(tree->children) + 1;
+-    free_tree_node(tree);
+-    return result;
+-}
+-
+ int tree_rm(struct pathx *p) {
+     struct tree *tree, **del;
+     int cnt = 0, ndel = 0, i;
+@@ -1116,7 +1160,7 @@ int tree_rm(struct pathx *p) {
+     }
+ 
+     for (i = 0; i < ndel; i++)
+-        cnt += tree_unlink(del[i]);
++        cnt += tree_unlink_raw(del[i]);
+     free(del);
+ 
+     return cnt;
+@@ -1199,33 +1243,6 @@ int aug_span(struct augeas *aug, const char *path, char **filename,
+     return result;
+ }
+ 
+-int tree_replace(struct augeas *aug, const char *path, struct tree *sub) {
+-    struct tree *parent;
+-    struct pathx *p = NULL;
+-    int r;
+-
+-    p = pathx_aug_parse(aug, aug->origin, tree_root_ctx(aug), path, true);
+-    ERR_BAIL(aug);
+-
+-    r = tree_rm(p);
+-    if (r == -1)
+-        goto error;
+-
+-    parent = tree_set(p, NULL);
+-    if (parent == NULL)
+-        goto error;
+-
+-    list_append(parent->children, sub);
+-    list_for_each(s, sub) {
+-        s->parent = parent;
+-    }
+-    free_pathx(p);
+-    return 0;
+- error:
+-    free_pathx(p);
+-    return -1;
+-}
+-
+ int aug_mv(struct augeas *aug, const char *src, const char *dst) {
+     struct pathx *s = NULL, *d = NULL;
+     struct tree *ts, *td, *t;
+@@ -1268,7 +1285,7 @@ int aug_mv(struct augeas *aug, const char *src, const char *dst) {
+     ts->value = NULL;
+     ts->children = NULL;
+ 
+-    tree_unlink(ts);
++    tree_unlink(aug, ts);
+     tree_mark_dirty(td);
+ 
+     ret = 0;
+diff --git a/src/internal.c b/src/internal.c
+index b9e3eab..1ebc7fa 100644
+--- a/src/internal.c
++++ b/src/internal.c
+@@ -336,6 +336,8 @@ char *path_expand(struct tree *tree, const char *ppath) {
+ 
+     char *path;
+     const char *label;
++    char *escaped = NULL;
++
+     int cnt = 0, ind = 0, r;
+ 
+     list_for_each(t, siblings) {
+@@ -356,11 +358,18 @@ char *path_expand(struct tree *tree, const char *ppath) {
+     else
+         label = tree->label;
+ 
++    r = pathx_escape_name(label, &escaped);
++    if (escaped != NULL)
++        label = escaped;
++
+     if (cnt > 1) {
+         r = asprintf(&path, "%s/%s[%d]", ppath, label, ind);
+     } else {
+         r = asprintf(&path, "%s/%s", ppath, label);
+     }
++
++    free(escaped);
++
+     if (r == -1)
+         return NULL;
+     return path;
+diff --git a/src/internal.h b/src/internal.h
+index 1f7bef3..85d8ee3 100644
+--- a/src/internal.h
++++ b/src/internal.h
+@@ -400,12 +400,11 @@ struct tree *make_tree(char *label, char *value,
+  */
+ struct tree  *make_tree_origin(struct tree *root);
+ 
+-int tree_replace(struct augeas *aug, const char *path, struct tree *sub);
+ /* Make a new tree node and append it to parent's children */
+ struct tree *tree_append(struct tree *parent, char *label, char *value);
+ 
+ int tree_rm(struct pathx *p);
+-int tree_unlink(struct tree *tree);
++int tree_unlink(struct augeas *aug, struct tree *tree);
+ struct tree *tree_set(struct pathx *p, const char *value);
+ int tree_insert(struct pathx *p, const char *label, int before);
+ int free_tree(struct tree *tree);
+@@ -430,6 +429,15 @@ void tree_store_value(struct tree *tree, char **value);
+ int tree_set_value(struct tree *tree, const char *value);
+ /* Cleanly remove all children of TREE, but leave TREE itself unchanged */
+ void tree_unlink_children(struct augeas *aug, struct tree *tree);
++/* Find a node in the tree at path FPATH; FPATH is a file path, i.e.
++ * not interpreted as a path expression. If no such node exists, return NULL
++ */
++struct tree *tree_fpath(struct augeas *aug, const char *fpath);
++/* Find a node in the tree at path FPATH; FPATH is a file path, i.e.
++ * not interpreted as a path expression. If no such node exists, create
++ * it and all its missing ancestors.
++ */
++struct tree *tree_fpath_cr(struct augeas *aug, const char *fpath);
+ /* Find the node matching PATH.
+  * Returns the node or NULL on error
+  * Errors: EMMATCH - more than one node matches PATH
+@@ -567,6 +575,16 @@ void pathx_symtab_remove_descendants(struct pathx_symtab *symtab,
+                                      const struct tree *tree);
+ void free_symtab(struct pathx_symtab *symtab);
+ 
++/* Escape a name so that it is safe to pass to parse_name and have it
++ * interpreted as the literal name of a path component.
++ *
++ * On return, *OUT will be NULL if IN does not need escaping, otherwise it
++ * will contain an escaped copy of IN which the caller must free.
++ *
++ * Returns -1 if it failed to allocate memory for *OUT, 0 on success
++ */
++int pathx_escape_name(const char *in, char **out);
++
+ /* Debug helpers, all defined in internal.c. When ENABLE_DEBUG is not
+  * set, they compile to nothing.
+  */
+diff --git a/src/pathx.c b/src/pathx.c
+index 467e5d7..8d8dbbb 100644
+--- a/src/pathx.c
++++ b/src/pathx.c
+@@ -123,6 +123,15 @@ static const char *const axis_names[] = {
+ 
+ static const char *const axis_sep = "::";
+ 
++/* The characters that can follow a name in a location expression (aka path)
++ * The parser will assume that name (path component) is finished when it
++ * encounters any of these characters, unless they are escaped by preceding
++ * them with a '\\'.
++ *
++ * See parse_name for the gory details
++ */
++static const char const name_follow[] = "][|/=()!,";
++
+ /* Doubly linked list of location steps. Besides the information from the
+  * path expression, also contains information to iterate over a node set,
+  * in particular, the context node CTX for the step, and the current node
+@@ -1607,17 +1616,43 @@ static void push_new_binary_op(enum binary_op op, struct state *state) {
+     push_expr(expr, state);
+ }
+ 
++int pathx_escape_name(const char *in, char **out) {
++    const char *p;
++    int num_to_escape = 0;
++    char *s;
++
++    *out = NULL;
++
++    for (p = in; *p; p++) {
++        if (strchr(name_follow, *p) || isspace(*p) || *p == '\\')
++            num_to_escape += 1;
++    }
++
++    if (num_to_escape == 0)
++        return 0;
++
++    if (ALLOC_N(*out, strlen(in) + num_to_escape + 1) < 0)
++        return -1;
++
++    for (p = in, s = *out; *p; p++) {
++        if (strchr(name_follow, *p) || isspace(*p) || *p == '\\')
++            *s++ = '\\';
++        *s++ = *p;
++    }
++    *s = '\0';
++    return 0;
++}
++
+ /*
+  * NameNoWS ::= [^][|/\= \t\n] | \\.
+  * NameWS   ::= [^][|/\=] | \\.
+  * Name ::= NameNoWS NameWS* NameNoWS | NameNoWS
+  */
+ static char *parse_name(struct state *state) {
+-    static const char const follow[] = "][|/=()!,";
+     const char *s = state->pos;
+     char *result;
+ 
+-    while (*state->pos != '\0' && strchr(follow, *state->pos) == NULL) {
++    while (*state->pos != '\0' && strchr(name_follow, *state->pos) == NULL) {
+         /* This is a hack: since we allow spaces in names, we need to avoid
+          * gobbling up stuff that is in follow(Name), e.g. 'or' so that
+          * things like [name1 or name2] still work.
+diff --git a/src/transform.c b/src/transform.c
+index 9253b31..73d4a9d 100644
+--- a/src/transform.c
++++ b/src/transform.c
+@@ -170,7 +170,7 @@ static bool file_current(struct augeas *aug, const char *fname,
+     if (path == NULL)
+         return false;
+ 
+-    file = tree_find(aug, path->value);
++    file = tree_fpath(aug, path->value);
+     return (file != NULL && ! file->dirty);
+ }
+ 
+@@ -345,7 +345,7 @@ static int store_error(struct augeas *aug,
+     }
+     ERR_NOMEM(r < 0, aug);
+ 
+-    finfo = tree_find_cr(aug, fip);
++    finfo = tree_fpath_cr(aug, fip);
+     ERR_BAIL(aug);
+ 
+     if (status != NULL) {
+@@ -385,11 +385,8 @@ static int store_error(struct augeas *aug,
+     } else {
+         /* No error, nuke the error node if it exists */
+         err_info = tree_child(finfo, s_error);
+-        if (err_info != NULL) {
+-            tree_unlink_children(aug, err_info);
+-            pathx_symtab_remove_descendants(aug->symtab, err_info);
+-            tree_unlink(err_info);
+-        }
++        if (err_info != NULL)
++            tree_unlink(aug, err_info);
+     }
+ 
+     tree_clean(finfo);
+@@ -422,7 +419,7 @@ static int add_file_info(struct augeas *aug, const char *node,
+     r = pathjoin(&path, 2, AUGEAS_META_TREE, node);
+     ERR_NOMEM(r < 0, aug);
+ 
+-    file = tree_find_cr(aug, path);
++    file = tree_fpath_cr(aug, path);
+     ERR_BAIL(aug);
+ 
+     /* Set 'path' */
+@@ -488,6 +485,21 @@ static char *file_name_path(struct augeas *aug, const char *fname) {
+     return path;
+ }
+ 
++/* Replace the subtree for FPATH with SUB */
++static void tree_freplace(struct augeas *aug, const char *fpath,
++                         struct tree *sub) {
++    struct tree *parent;
++
++    parent = tree_fpath_cr(aug, fpath);
++    ERR_RET(aug);
++
++    tree_unlink_children(aug, parent);
++    list_append(parent->children, sub);
++    list_for_each(s, sub) {
++        s->parent = parent;
++    }
++}
++
+ static int load_file(struct augeas *aug, struct lens *lens,
+                      const char *lens_name, char *filename) {
+     char *text = NULL;
+@@ -535,7 +547,8 @@ static int load_file(struct augeas *aug, struct lens *lens,
+         goto done;
+     }
+ 
+-    tree_replace(aug, path, tree);
++    tree_freplace(aug, path, tree);
++    ERR_BAIL(aug);
+ 
+     /* top level node span entire file length */
+     if (span != NULL && tree != NULL) {
+@@ -597,9 +610,7 @@ int text_store(struct augeas *aug, const char *lens_path,
+     struct lens *lens = NULL;
+ 
+     lens = lens_from_name(aug, lens_path);
+-    if (lens == NULL) {
+-        goto done;
+-    }
++    ERR_BAIL(aug);
+ 
+     make_ref(info);
+     info->first_line = 1;
+@@ -610,12 +621,13 @@ int text_store(struct augeas *aug, const char *lens_path,
+     tree = lns_get(info, lens, text, &err);
+     if (err != NULL) {
+         err_status = "parse_failed";
+-        goto done;
++        goto error;
+     }
+ 
+     unref(info, info);
+ 
+-    tree_replace(aug, path, tree);
++    tree_freplace(aug, path, tree);
++    ERR_BAIL(aug);
+ 
+     /* top level node span entire file length */
+     if (span != NULL && tree != NULL) {
+@@ -627,7 +639,7 @@ int text_store(struct augeas *aug, const char *lens_path,
+     tree = NULL;
+ 
+     result = 0;
+-done:
++ error:
+     store_error(aug, NULL, path, err_status, errno, err, text);
+     free_tree(tree);
+     free_lns_error(err);
+@@ -687,7 +699,7 @@ int transform_validate(struct augeas *aug, struct tree *xfm) {
+         if (streqv(t->label, "error")) {
+             struct tree *del = t;
+             t = del->next;
+-            tree_unlink(del);
++            tree_unlink(aug, del);
+         } else {
+             t = t->next;
+         }
+@@ -718,7 +730,7 @@ void transform_file_error(struct augeas *aug, const char *status,
+     va_list ap;
+     int r;
+ 
+-    err = tree_find_cr(aug, ep);
++    err = tree_fpath_cr(aug, ep);
+     if (err == NULL)
+         return;
+ 
+@@ -746,7 +758,7 @@ static struct tree *file_info(struct augeas *aug, const char *fname) {
+     r = pathjoin(&path, 2, AUGEAS_META_FILES, fname);
+     ERR_NOMEM(r < 0, aug);
+ 
+-    result = tree_find(aug, path);
++    result = tree_fpath(aug, path);
+     ERR_BAIL(aug);
+  error:
+     free(path);
+@@ -1288,21 +1300,34 @@ int text_retrieve(struct augeas *aug, const char *lens_name,
+ }
+ 
+ int remove_file(struct augeas *aug, struct tree *tree) {
+-    char *path = NULL;
+-    const char *filename = NULL;
+     const char *err_status = NULL;
+     char *dyn_err_status = NULL;
+     char *augsave = NULL, *augorig = NULL, *augorig_canon = NULL;
++    struct tree *path = NULL;
++    const char *file_path = NULL;
++    char *meta_path = NULL;
+     int r;
+ 
+-    path = path_of_tree(tree);
++    path = tree_child(tree, s_path);
+     if (path == NULL) {
++        err_status = "no child called 'path' for file entry";
++        goto error;
++    }
++    file_path = path->value + strlen(AUGEAS_FILES_TREE);
++    path = NULL;
++
++    if (file_path == NULL) {
++        err_status = "no path for file";
++        goto error;
++    }
++
++    meta_path = path_of_tree(tree);
++    if (meta_path == NULL) {
+         err_status = "path_of_tree";
+         goto error;
+     }
+-    filename = path + strlen(AUGEAS_META_FILES);
+ 
+-    if ((augorig = strappend(aug->root, filename + 1)) == NULL) {
++    if ((augorig = strappend(aug->root, file_path)) == NULL) {
+         err_status = "root_file";
+         goto error;
+     }
+@@ -1317,7 +1342,7 @@ int remove_file(struct augeas *aug, struct tree *tree) {
+         }
+     }
+ 
+-    r = file_saved_event(aug, path + strlen(AUGEAS_META_TREE));
++    r = file_saved_event(aug, meta_path + strlen(AUGEAS_META_TREE));
+     if (r < 0) {
+         err_status = "saved_event";
+         goto error;
+@@ -1347,9 +1372,10 @@ int remove_file(struct augeas *aug, struct tree *tree) {
+             goto error;
+         }
+     }
+-    tree_unlink(tree);
++    path = NULL;
++    tree_unlink(aug, tree);
+  done:
+-    free(path);
++    free(meta_path);
+     free(augorig);
+     free(augorig_canon);
+     free(augsave);
+@@ -1358,9 +1384,9 @@ int remove_file(struct augeas *aug, struct tree *tree) {
+     {
+         const char *emsg =
+             dyn_err_status == NULL ? err_status : dyn_err_status;
+-        store_error(aug, filename, path, emsg, errno, NULL, NULL);
++        store_error(aug, file_path, meta_path, emsg, errno, NULL, NULL);
+     }
+-    free(path);
++    free(meta_path);
+     free(augorig);
+     free(augorig_canon);
+     free(augsave);
+diff --git a/tests/root/etc/sysconfig/network-scripts/ifcfg-Auto-ALICE-WLAN38_(automatisch) b/tests/root/etc/sysconfig/network-scripts/ifcfg-Auto-ALICE-WLAN38_(automatisch)
+new file mode 100644
+index 0000000..1bb8bf6
+--- /dev/null
++++ b/tests/root/etc/sysconfig/network-scripts/ifcfg-Auto-ALICE-WLAN38_(automatisch)
+@@ -0,0 +1 @@
++# empty
+diff --git a/tests/root/etc/sysconfig/network-scripts/ifcfg-Auto_FRITZ!Box_Fon_WLAN_7112 b/tests/root/etc/sysconfig/network-scripts/ifcfg-Auto_FRITZ!Box_Fon_WLAN_7112
+new file mode 100644
+index 0000000..9dde9f5
+--- /dev/null
++++ b/tests/root/etc/sysconfig/network-scripts/ifcfg-Auto_FRITZ!Box_Fon_WLAN_7112
+@@ -0,0 +1,14 @@
++ESSID="FRITZ!Box Fon WLAN 7112"
++MODE=Managed
++KEY_MGMT=WPA-PSK
++WPA_PSK_FLAGS=user
++TYPE=Wireless
++BOOTPROTO=dhcp
++DEFROUTE=yes
++IPV4_FAILURE_FATAL=yes
++NAME="Auto FRITZ!Box Fon WLAN 7112"
++ONBOOT=yes
++PEERDNS=yes
++PEERROUTES=yes
++IPV6INIT=no
++USERS=lutter
+diff --git a/tests/root/etc/sysconfig/network-scripts/ifcfg-weird [!] (used to fail) b/tests/root/etc/sysconfig/network-scripts/ifcfg-weird [!] (used to fail)
+new file mode 100644
+index 0000000..08cf100
+--- /dev/null
++++ b/tests/root/etc/sysconfig/network-scripts/ifcfg-weird [!] (used to fail)	
+@@ -0,0 +1,4 @@
++# This file is only here to make sure augeas handles truly bizarre
++# file names gracefully. Looking this file up in the tree will require
++# escaping all the special chars in the file name
++DEVICE=weird
+diff --git a/tests/run.tests b/tests/run.tests
+index 39f8153..c74b644 100644
+--- a/tests/run.tests
++++ b/tests/run.tests
+@@ -440,13 +440,13 @@ test set-escaped-path-bracket 2
+   set /white\ space/\[section value
+   print /white\ space/\[section
+ prints
+-  /white space/[section = "value"
++  /white\ space/\[section = "value"
+ 
+ test set-squote-escaped-bracket 2
+   set '/augeas/\[section' value
+   print '/augeas/\[section'
+ prints
+-  /augeas/[section = "value"
++  /augeas/\[section = "value"
+ 
+ test set-squote-escaped-path 2
+   set '/white\ space' value
+diff --git a/tests/test-save.c b/tests/test-save.c
+index 14d0ecc..1875a62 100644
+--- a/tests/test-save.c
++++ b/tests/test-save.c
+@@ -228,6 +228,58 @@ static void testUmask022(CuTest *tc) {
+     testUmask(tc, 0022, 0644);
+ }
+ 
++/* Test that handling of 'strange' characters in path names works as
++ * expected. In particular, that paths with characters that have special
++ * meaning in path expressions are escaped properly.
++ *
++ * This test isn't all that specific to save, but since these tests set up
++ * a copy of tests/root/ that is modifiable, it was convenient to put this
++ * test here.
++ */
++static void testPathEscaping(CuTest *tc) {
++    /* Path expression with characters escaped */
++    static const char *const weird =
++        "/files/etc/sysconfig/network-scripts/ifcfg-weird\\ \\[\\!\\]\\ \\(used\\ to\\ fail\\)";
++    /* Path without any escaping */
++    static const char *const weird_no_escape =
++        "/files/etc/sysconfig/network-scripts/ifcfg-weird [!] (used to fail)";
++
++    char *fname = NULL, *s = NULL;
++    const char *v;
++    int r;
++
++    /* Construct the file name in the file system and check the file is there */
++    r = asprintf(&fname, "%s%s", root, weird_no_escape + strlen("/files"));
++    CuAssertPositive(tc, r);
++
++    r = access(fname, R_OK);
++    CuAssertIntEquals(tc, 0, r);
++
++    /* Make sure weird is in the tree */
++    r = aug_match(aug, weird, NULL);
++    CuAssertIntEquals(tc, 1, r);
++
++    /* Make sure we can get to the metadata about weird */
++    r = asprintf(&s, "/augeas%s/path", weird);
++    CuAssertPositive(tc, r);
++
++    r = aug_get(aug, s, &v);
++    CuAssertIntEquals(tc, 1, r);
++    CuAssertStrEquals(tc, weird_no_escape, v);
++
++    /* Delete it from the tree and save it; make sure it gets removed
++       from the file system */
++    r = aug_rm(aug, weird);
++    CuAssertPositive(tc, r);
++
++    r = aug_save(aug);
++    CuAssertRetSuccess(tc, r);
++
++    r = access(fname, R_OK);
++    CuAssertIntEquals(tc, -1, r);
++    CuAssertIntEquals(tc, ENOENT, errno);
++}
++
+ int main(void) {
+     char *output = NULL;
+     CuSuite* suite = CuSuiteNew();
+@@ -254,6 +306,7 @@ int main(void) {
+     SUITE_ADD_TEST(suite, testUmask077);
+     SUITE_ADD_TEST(suite, testUmask027);
+     SUITE_ADD_TEST(suite, testUmask022);
++    SUITE_ADD_TEST(suite, testPathEscaping);
+ 
+     CuSuiteRun(suite);
+     CuSuiteSummary(suite, &output);
+diff --git a/tests/xpath.tests b/tests/xpath.tests
+index 41bb555..e89cf98 100644
+--- a/tests/xpath.tests
++++ b/tests/xpath.tests
+@@ -278,7 +278,7 @@ test union (/files/etc/yum.conf | /files/etc/yum.repos.d/*)/*/gpgcheck
+ 
+ # Paths with whitespace in them
+ test php1 $php/mail function
+-     /files/etc/php.ini/mail function
++     /files/etc/php.ini/mail\ function
+ 
+ test php2 $php[mail function]
+      /files/etc/php.ini
+@@ -287,10 +287,10 @@ test php3 $php[count(mail function) = 1]
+      /files/etc/php.ini
+ 
+ test php4 $php/mail function/SMTP
+-     /files/etc/php.ini/mail function/SMTP = localhost
++     /files/etc/php.ini/mail\ function/SMTP = localhost
+ 
+ test php5 $php/mail\ function
+-     /files/etc/php.ini/mail function
++     /files/etc/php.ini/mail\ function
+ 
+ test expr-or /files/etc/group/root/*[self::gid or self::user]
+      /files/etc/group/root/gid = 0
+@@ -315,3 +315,19 @@ test ctx_file etc/network/interfaces
+ 
+ test ctx_file_pred etc/network/interfaces/iface[. = "lo"]
+      /files/etc/network/interfaces/iface[1] = lo
++
++# Test matching with characters that need escaping in the filename
++test escape1 /files/etc/sysconfig/network-scripts/*
++    /files/etc/sysconfig/network-scripts/ifcfg-eth0
++    /files/etc/sysconfig/network-scripts/ifcfg-wlan0
++    /files/etc/sysconfig/network-scripts/ifcfg-weird\ \[\!\]\ \(used\ to\ fail\)
++    /files/etc/sysconfig/network-scripts/ifcfg-Auto_FRITZ\!Box_Fon_WLAN_7112
++    /files/etc/sysconfig/network-scripts/ifcfg-lo
++    /files/etc/sysconfig/network-scripts/ifcfg-Auto-ALICE-WLAN38_\(automatisch\)
++    /files/etc/sysconfig/network-scripts/ifcfg-br0
++
++test escape2 /files/etc/sysconfig/network-scripts/ifcfg-weird\ \[\!\]\ \(used\ to\ fail\)/DEVICE
++     /files/etc/sysconfig/network-scripts/ifcfg-weird\ \[\!\]\ \(used\ to\ fail\)/DEVICE = weird
++
++test escape3 /files/etc/sysconfig/network-scripts/*[DEVICE = 'weird']
++     /files/etc/sysconfig/network-scripts/ifcfg-weird\ \[\!\]\ \(used\ to\ fail\)
+-- 
+2.1.0
+

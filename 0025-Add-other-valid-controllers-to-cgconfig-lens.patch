@@ -1,0 +1,77 @@
+From b752a6a4b5b2a76f25b412a5d74051387c508f76 Mon Sep 17 00:00:00 2001
+From: Andy Grimm <agrimm@redhat.com>
+Date: Mon, 23 Jun 2014 12:51:35 -0400
+Subject: [PATCH] Add other valid controllers to cgconfig lens
+
+(cherry picked from commit 45ed30e0a48e56091c5c43aefef46984dde142df)
+
+Conflicts:
+	AUTHORS
+	NEWS
+---
+ lenses/cgconfig.aug            |  2 +-
+ lenses/tests/test_cgconfig.aug | 41 +++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 42 insertions(+), 1 deletion(-)
+
+diff --git a/lenses/cgconfig.aug b/lenses/cgconfig.aug
+index 9f960d2..0180a99 100644
+--- a/lenses/cgconfig.aug
++++ b/lenses/cgconfig.aug
+@@ -28,7 +28,7 @@ module Cgconfig =
+ 
+    let id        = /[a-zA-Z0-9_\/.-]+/
+    let name      = /[^#= \n\t{}\/]+/
+-   let cont_name = /(cpuacct|cpu|devices|ns|cpuset|memory|freezer|net_cls)/
++   let cont_name = /(cpuacct|cpu|devices|ns|cpuset|memory|freezer|net_cls|blkio|hugetlb|perf_event)/
+    let role_name = /(admin|task)/
+    let id_name   = /(uid|gid)/
+    let address   = /[^#; \n\t{}]+/
+diff --git a/lenses/tests/test_cgconfig.aug b/lenses/tests/test_cgconfig.aug
+index 458e074..42b0848 100644
+--- a/lenses/tests/test_cgconfig.aug
++++ b/lenses/tests/test_cgconfig.aug
+@@ -257,3 +257,44 @@ test Cgconfig.lns get group4 =
+ test Cgconfig.lns put "group tst {memory {}}" after
+   set "/group" "tst2"
+ = "group tst2 {memory {}}"
++
++let group5="
++group user {
++	cpuacct {}
++        cpu {}
++        cpuset {}
++        devices {}
++        freezer {}
++        memory {}
++        net_cls {}
++        blkio {}
++        hugetlb {}
++        perf_event {}
++}"
++
++test Cgconfig.lns get group5 =
++  {  }
++  { "group" = "user"
++    {  }
++    { "controller" = "cpuacct" }
++    {  }
++    { "controller" = "cpu" }
++    {  }
++    { "controller" = "cpuset" }
++    {  }
++    { "controller" = "devices" }
++    {  }
++    { "controller" = "freezer" }
++    {  }
++    { "controller" = "memory" }
++    {  }
++    { "controller" = "net_cls" }
++    {  }
++    { "controller" = "blkio" }
++    {  }
++    { "controller" = "hugetlb" }
++    {  }
++    { "controller" = "perf_event" }
++    {  }
++  }
++

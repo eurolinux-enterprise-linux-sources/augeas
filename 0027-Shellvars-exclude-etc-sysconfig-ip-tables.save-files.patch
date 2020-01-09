@@ -1,0 +1,46 @@
+From cff2f50fa3b19e22bbd2ff140c3407490b11fde3 Mon Sep 17 00:00:00 2001
+From: David Lutterkort <lutter@watzmann.net>
+Date: Wed, 4 Dec 2013 12:02:57 -0800
+Subject: [PATCH] Shellvars: exclude /etc/sysconfig/ip*tables.save files
+
+(cherry picked from commit 7830adc726d2da9f3d350aa3a74a7a865f57bd4f)
+
+Shellvars: fix syntax error in filter
+
+(cherry picked from commit 69eb611785da41d540b75b37ca92fecd5406d67e)
+
+Iptables: parse /etc/sysconfig/iptables.save
+
+Fixes RHBZ#1144651
+
+(cherry picked from commit 85904f7b819ac6a604873954138bbf647e98bfec)
+
+Conflicts:
+	NEWS
+---
+ lenses/iptables.aug  | 1 +
+ lenses/shellvars.aug | 1 +
+ 2 files changed, 2 insertions(+)
+
+diff --git a/lenses/iptables.aug b/lenses/iptables.aug
+index e0f9450..8ad2aef 100644
+--- a/lenses/iptables.aug
++++ b/lenses/iptables.aug
+@@ -83,4 +83,5 @@ let table = [ del /\*/ "*" . label "table" . store /[a-z]+/ . eol .
+ 
+ let lns = (comment|empty|table)*
+ let xfm = transform lns (incl "/etc/sysconfig/iptables"
++                       . incl "/etc/sysconfig/iptables.save"
+                        . incl "/etc/iptables-save")
+diff --git a/lenses/shellvars.aug b/lenses/shellvars.aug
+index b0340bf..4688fb6 100644
+--- a/lenses/shellvars.aug
++++ b/lenses/shellvars.aug
+@@ -187,6 +187,7 @@ module Shellvars =
+       sc_excl "hw-uuid" .
+       sc_excl "hwconf" .
+       sc_excl "ip*tables" .
++      sc_excl "ip*tables.save" .
+       sc_excl "kernel" .
+       sc_excl "*.pub" .
+       sc_excl "sysstat.ioconf" .

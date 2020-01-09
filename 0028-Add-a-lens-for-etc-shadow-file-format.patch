@@ -1,0 +1,208 @@
+From 5bdd5287205ce26213a30080f2499f8b1b858d14 Mon Sep 17 00:00:00 2001
+From: "Lorenzo M. Catucci" <lorenzo@sancho.ccd.uniroma2.it>
+Date: Sat, 10 May 2014 15:35:15 +0200
+Subject: [PATCH] Add a lens for /etc/shadow file format
+
+and wire-up its test to the runner's list in Makefile.am
+
+Also add a mock /etc/shadow in tests/root
+
+(cherry picked from commit 03f24b24ed13fb1d01717a9247bf8a2cea5f0b71)
+
+Add a little bit of ducumentation
+
+for both the shadow and the gshadow lenses
+
+(cherry picked from commit b6090f1782e6093666f60d60ad7d79fd488cc8d0)
+
+Conflicts:
+	lenses/gshadow.aug
+---
+ doc/naturaldocs/conf/lenses/Menu.txt |  1 +
+ lenses/shadow.aug                    | 72 ++++++++++++++++++++++++++++++++++++
+ lenses/tests/test_shadow.aug         | 45 ++++++++++++++++++++++
+ tests/Makefile.am                    |  1 +
+ tests/root/etc/shadow                | 19 ++++++++++
+ 5 files changed, 138 insertions(+)
+ create mode 100644 lenses/shadow.aug
+ create mode 100644 lenses/tests/test_shadow.aug
+ create mode 100644 tests/root/etc/shadow
+
+diff --git a/doc/naturaldocs/conf/lenses/Menu.txt b/doc/naturaldocs/conf/lenses/Menu.txt
+index c523ab0..59d8104 100644
+--- a/doc/naturaldocs/conf/lenses/Menu.txt
++++ b/doc/naturaldocs/conf/lenses/Menu.txt
+@@ -124,6 +124,7 @@ Group: Specific Modules  {
+    File: Rsyslog  (rsyslog.aug)
+    File: Schroot  (schroot.aug)
+    File: Services  (services.aug)
++   File: Shadow  (shadow.aug)
+    File: Shells  (shells.aug)
+    File: Simplelines  (simplelines.aug)
+    File: Simplevars  (simplevars.aug)
+diff --git a/lenses/shadow.aug b/lenses/shadow.aug
+new file mode 100644
+index 0000000..dc2ace3
+--- /dev/null
++++ b/lenses/shadow.aug
+@@ -0,0 +1,72 @@
++(*
++ Module: Shadow
++ Parses /etc/shadow
++
++ Author: Lorenzo M. Catucci <catucci@ccd.uniroma2.it>
++
++ Original Author: Free Ekanayaka <free@64studio.com>
++
++ About: Reference
++
++   - man 5 shadow
++   - man 3 getspnam
++
++ About: License
++   This file is licensed under the LGPL v2+, like the rest of Augeas.
++
++ About:
++
++ Each line in the shadow files represents the additional shadow-defined attributes
++ for the corresponding user, as defined in the passwd file.
++
++*)
++
++module Shadow =
++
++   autoload xfm
++
++(************************************************************************
++ *                           USEFUL PRIMITIVES
++ *************************************************************************)
++
++let eol        = Util.eol
++let comment    = Util.comment
++let empty      = Util.empty
++let dels       = Util.del_str
++
++let colon      = Sep.colon
++
++let word       = Rx.word
++let integer    = Rx.integer
++
++let sto_to_col = Passwd.sto_to_col
++let sto_to_eol = Passwd.sto_to_eol
++
++(************************************************************************
++ * Group:                        ENTRIES
++ *************************************************************************)
++
++(* View: entry *)
++let entry   = [ key word
++                . colon
++                . [ label "password"          . sto_to_col?    . colon ]
++                . [ label "lastchange_date"   . store integer? . colon ]
++                . [ label "minage_days"       . store integer? . colon ]
++                . [ label "maxage_days"       . store integer? . colon ]
++                . [ label "warn_days"         . store integer? . colon ]
++                . [ label "inactive_days"     . store integer? . colon ]
++                . [ label "expire_date"       . store integer? . colon ]
++                . [ label "flag"              . store integer? ]
++                . eol ]
++
++(************************************************************************
++ *                                LENS
++ *************************************************************************)
++
++let lns        = (comment|empty|entry) *
++
++let filter
++               = incl "/etc/shadow"
++               . Util.stdexcl
++
++let xfm        = transform lns filter
+diff --git a/lenses/tests/test_shadow.aug b/lenses/tests/test_shadow.aug
+new file mode 100644
+index 0000000..44b5a94
+--- /dev/null
++++ b/lenses/tests/test_shadow.aug
+@@ -0,0 +1,45 @@
++module Test_Shadow =
++
++let conf = "root:x:0:0:999999:7:::
++libuuid:*:0:0:0::::
++expired:$6$INVALID:0:0:0:::100:
++locked:!$6$INVALID:0:0:0::::
++"
++
++test Shadow.lns get conf =
++  { "root"
++    { "password" = "x" }
++    { "lastchange_date" = "0" }
++    { "minage_days" = "0" }
++    { "maxage_days" = "999999" }
++    { "warn_days" = "7" }
++    { "inactive_days" = "" }
++    { "expire_date" = "" }
++    { "flag" = "" } }
++  { "libuuid"
++    { "password" = "*" }
++    { "lastchange_date" = "0" }
++    { "minage_days" = "0" }
++    { "maxage_days" = "0" }
++    { "warn_days" = "" }
++    { "inactive_days" = "" }
++    { "expire_date" = "" }
++    { "flag" = "" } }
++  { "expired"
++    { "password" = "$6$INVALID" }
++    { "lastchange_date" = "0" }
++    { "minage_days" = "0" }
++    { "maxage_days" = "0" }
++    { "warn_days" = "" }
++    { "inactive_days" = "" }
++    { "expire_date" = "100" }
++    { "flag" = "" } }
++  { "locked"
++    { "password" = "!$6$INVALID" }
++    { "lastchange_date" = "0" }
++    { "minage_days" = "0" }
++    { "maxage_days" = "0" }
++    { "warn_days" = "" }
++    { "inactive_days" = "" }
++    { "expire_date" = "" }
++    { "flag" = "" } }
+diff --git a/tests/Makefile.am b/tests/Makefile.am
+index 82d5ba3..0ce2b21 100644
+--- a/tests/Makefile.am
++++ b/tests/Makefile.am
+@@ -145,6 +145,7 @@ lens_tests =			\
+   lens-samba.sh			\
+   lens-securetty.sh     \
+   lens-services.sh		\
++  lens-shadow.sh		\
+   lens-shells.sh		\
+   lens-shellvars.sh		\
+   lens-shellvars_list.sh	\
+diff --git a/tests/root/etc/shadow b/tests/root/etc/shadow
+new file mode 100644
+index 0000000..fe6fd3f
+--- /dev/null
++++ b/tests/root/etc/shadow
+@@ -0,0 +1,19 @@
++root:$5$rounds=1000$TMTRLLOM$h24vGZsHaf6aNdz3dsUuE4z/fy5at1Luuu.FBI6D6M:16200::999999:7:::
++bin:x:16200::999999:7:::
++daemon:x:16200::999999:7:::
++adm:x:16200::999999:7:::
++lp:x:16200::999999:7:::
++sync:x:16200::999999:7:::
++shutdown:x:16200::999999:7:::
++halt:x:16200::999999:7:::
++mail:x:16200::999999:7:::
++uucp:x:16200::999999:7:::
++operator:x:16200::999999:7:::
++games:x:16200::999999:7:::
++gopher:x:16200::999999:7:::
++ftp:x:16200::999999:7:::
++nobody:x:16200::999999:7:::
++vcsa:x:16200::999999:7:::
++rpc:x:16200::999999:7:::
++rpcuser:x:16200::999999:7:::
++nfsnobody:x:16200::999999:7:::

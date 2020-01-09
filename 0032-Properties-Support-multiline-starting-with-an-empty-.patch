@@ -1,0 +1,58 @@
+From ba81b07c1efe520beceb366dd70801fad1375baf Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Rapha=C3=ABl=20Pinson?= <raphael.pinson@camptocamp.com>
+Date: Thu, 1 Aug 2013 16:07:28 +0200
+Subject: [PATCH 3/3] Properties: Support multiline starting with an empty
+ string, GH issue #19
+
+(cherry picked from commit 491df81021287ab4da53062a9226f0984481a7a9)
+---
+ lenses/properties.aug            |  5 ++++-
+ lenses/tests/test_properties.aug | 13 +++++++++++++
+ 2 files changed, 17 insertions(+), 1 deletion(-)
+
+diff --git a/lenses/properties.aug b/lenses/properties.aug
+index bc5aa4b..465d79b 100644
+--- a/lenses/properties.aug
++++ b/lenses/properties.aug
+@@ -25,13 +25,16 @@ module Properties =
+   let value_to_bs      = store /([^ \t\n:=][^\n]*[^\\\n]|[^ \t\n\\:=])/
+   let indent           = Util.indent
+   let backslash        = del /[\\][ \t]*\n/ "\\\n"
++  let opt_backslash    = del /([\\][ \t]*\n)?/ ""
+   let entry            = /([^ \t\n:=\/!#\\]|[\\]:|[\\]=|[\\][\t ]|[\\][^\/\n])+/
+ 
+   let multi_line_entry =
+-      [ indent . value_to_bs . backslash ] + .
++      [ indent . value_to_bs? . backslash ] .
++      [ indent . value_to_bs . backslash ] * .
+       [ indent . value_to_eol . eol ] . value " < multi > "
+ 
+   let multi_line_entry_ws =
++      opt_backslash .
+       [ indent . value_to_bs_ws . backslash ] + .
+       [ indent . value_to_eol . eol ] . value " < multi_ws > "
+ 
+diff --git a/lenses/tests/test_properties.aug b/lenses/tests/test_properties.aug
+index 46deb56..24c1fc6 100644
+--- a/lenses/tests/test_properties.aug
++++ b/lenses/tests/test_properties.aug
+@@ -145,3 +145,16 @@ escaped\=equals=value
+ escaped\ space=value
+ tomcat.application.host=foo.network.com
+ "
++
++(* GH issue #19: value on new line *)
++test lns get "k=\
++b\
++c\n" =
++    { "k" = " < multi > "
++      { } { = "b" } { = "c" } }
++
++test lns get "tomcat.util.scan.DefaultJarScanner.jarsToSkip=\
++bootstrap.jar,commons-daemon.jar,tomcat-juli.jar\n" =
++    { "tomcat.util.scan.DefaultJarScanner.jarsToSkip" = " < multi > "
++      { } { = "bootstrap.jar,commons-daemon.jar,tomcat-juli.jar" } }
++
+-- 
+2.1.0
+

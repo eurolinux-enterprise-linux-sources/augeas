@@ -1,6 +1,6 @@
 Name:           augeas
 Version:        1.0.0
-Release:        7%{?dist}.1
+Release:        10%{?dist}
 Summary:        A library for changing configuration files
 
 Group:          System Environment/Libraries
@@ -30,7 +30,15 @@ Patch20:        0020-src-augrun.c-remove-unused-filename-argument-from-du.patch
 Patch21:        0021-src-augtool.c-add-command-aliases-to-autocomplete.patch
 Patch22:        0022-Nrpe-accept-any-config-option-remove-predefined-list.patch
 Patch23:        0023-man-augtool.pod-fix-description-of-move-alias.patch
-Patch24:        0024-Kdump-parse-new-options-permit-EOL-comments-refactor.patch
+Patch24:        0024-Services-permit-colons-in-service-name.patch
+Patch25:        0025-Add-other-valid-controllers-to-cgconfig-lens.patch
+Patch26:        0026-Fix-Trac-364.-Syslog-lense-accept-UDP-and-TCP-protoc.patch
+Patch27:        0027-Shellvars-exclude-etc-sysconfig-ip-tables.save-files.patch
+Patch28:        0028-Add-a-lens-for-etc-shadow-file-format.patch
+Patch29:        0029-Kdump-parse-new-options-permit-EOL-comments-refactor.patch
+Patch30:        0030-Escape-paths-returned-by-aug_match.patch
+Patch31:        0031-Krb5-permit-braces-in-values-when-not-in-sub-section.patch
+Patch32:        0032-Properties-Support-multiline-starting-with-an-empty-.patch
 
 BuildRoot:      %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
@@ -92,6 +100,14 @@ The libraries for %{name}.
 %patch22 -p1
 %patch23 -p1
 %patch24 -p1
+%patch25 -p1
+%patch26 -p1
+%patch27 -p1
+%patch28 -p1
+%patch29 -p1
+%patch30 -p1
+%patch31 -p1
+%patch32 -p1
 
 %build
 %configure --disable-static
@@ -153,11 +169,23 @@ rm -rf $RPM_BUILD_ROOT
 %{_libdir}/pkgconfig/augeas.pc
 
 %changelog
-* Tue Jan 13 2015 Dominic Cleal <dcleal@redhat.com> - 1.0.0-7.1
-- Kdump: parse new options, EOL comments (RHBZ#1181278)
+* Thu Apr 09 2015 Dominic Cleal <dcleal@redhat.com> - 1.0.0-10
+- Escape paths returned from aug_match (RHBZ#1186318)
+- Krb5: parse braces in values (RHBZ#1203597)
+- Properties: handle empty line in multi-line value (RHBZ#1209885)
+
+* Mon Jan 12 2015 Dominic Cleal <dcleal@redhat.com> - 1.0.0-9
+- Kdump: parse new options, EOL comments (RHBZ#1175854)
+
+* Tue Dec 16 2014 Dominic Cleal <dcleal@redhat.com> - 1.0.0-8
+- Cgconfig: parse other valid controllers (RHBZ#1112388)
+- Iptables: parse /etc/sysconfig/iptables.save (RHBZ#1144652)
+- Services: permit colons in service name (RHBZ#1121263)
+- Shadow: add lens (RHBZ#1160261)
+- Syslog: parse TCP loghosts (RHBZ#1129508)
 
 * Fri Jun 13 2014 Dominic Cleal <dcleal@redhat.com> - 1.0.0-7
-* docs: fix description of 'move' alias (RHBZ#1100186)
+- docs: fix description of 'move' alias (RHBZ#1100186)
 
 * Tue Jun 03 2014 Dominic Cleal <dcleal@redhat.com> - 1.0.0-6
 - Fix CVE-2013-6412, incorrect permissions under strict umask (RHBZ#1036080)

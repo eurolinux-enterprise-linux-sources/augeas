@@ -1,0 +1,135 @@
+From f06d75f3184e472aa0c1e91cd13c7c8739633b2e Mon Sep 17 00:00:00 2001
+From: Yanis Guenane <yguenane@gmail.com>
+Date: Sun, 8 Sep 2013 09:30:17 -0400
+Subject: [PATCH] Fix Trac#364. Syslog lense accept UDP(@) and TCP(@@) protocol
+
+Currently the syslog lense only accept sending log to another host
+via UDP - a single @ -, and was discarding TCP - a double @ -. This
+PR fixes that.
+
+Fix test_rsyslog.aug
+
+Remove unused variable at
+
+(cherry picked from commit c0837e9d6ab45b2ace276355e146711b2266d10d)
+
+Restored Augeas 1.1.0 tree compatibility for UDP hosts, which don't require
+the { "protocol" = "@" } node, it's only used for TCP hosts.
+---
+ lenses/syslog.aug             | 16 +++++++++++-----
+ lenses/tests/test_rsyslog.aug | 11 +++++++++++
+ lenses/tests/test_syslog.aug  | 17 +++++++++++++++++
+ 3 files changed, 39 insertions(+), 5 deletions(-)
+
+diff --git a/lenses/syslog.aug b/lenses/syslog.aug
+index 5e5884e..3ad777b 100644
+--- a/lenses/syslog.aug
++++ b/lenses/syslog.aug
+@@ -59,10 +59,10 @@ module Syslog =
+ 	 Deletes a semicolon and default to it
+ 	 *)
+ 	let semicolon  = sep_tab_opt . Util.del_str ";" . sep_tab_opt
+-	(* Variable: at
+-	 Deletes a at and default to it
+-	 *)
+-	let at         = Util.del_str "@"
++  (* Variable: at
++   Deletes a at and default to it
++   *)
++  let at         = Util.del_str "@"
+ 	(* Variable: dot
+ 	 Deletes a dot and default to it
+ 	 *)
+@@ -101,6 +101,12 @@ module Syslog =
+ 	  *)
+         let comparison = /(!|[<=>]+|![<=>]+)/
+ 
++	(* Variable: protocol
++	  @ means UDP (removed, no protocol node is used in this backport)
++    @@ means TCP
++	  *)
++        let protocol      = /@@/
++
+ 	(* Variable: token
+ 	  alphanum or "*"
+ 	  *)
+@@ -175,7 +181,7 @@ module Syslog =
+ 	(* View: loghost
+ 	 a loghost is an @  sign followed by the hostname and a possible port
+ 	 *)
+-	let loghost = at . [ label "hostname" . store loghost_r ] .
++	let loghost = ([label "protocol" . store protocol] | at) . [ label "hostname" . store loghost_r ] .
+ 	    (colon . [ label "port" . store /[0-9]+/ ] )?
+ 
+ 	(* View: users
+diff --git a/lenses/tests/test_rsyslog.aug b/lenses/tests/test_rsyslog.aug
+index 7ee6f80..ca2aee8 100644
+--- a/lenses/tests/test_rsyslog.aug
++++ b/lenses/tests/test_rsyslog.aug
+@@ -20,6 +20,7 @@ $IncludeConfig /etc/rsyslog.d/*.conf
+ authpriv.*                                              /var/log/secure
+ *.emerg                                                 *
+ *.*    @2.7.4.1
++*.*    @@2.7.4.1
+ "
+ 
+ (* Test: Rsyslog.lns *)
+@@ -86,6 +87,16 @@ test Rsyslog.lns get conf =
+       { "hostname" = "2.7.4.1" }
+     }
+   }
++  { "entry"
++    { "selector"
++      { "facility" = "*" }
++      { "level" = "*" }
++    }
++    { "action"
++      { "protocol" = "@@" }
++      { "hostname" = "2.7.4.1" }
++    }
++  }
+ 
+ (* Parse complex $template lines, RHBZ#1083016 *)
+ test Rsyslog.lns get "$template SpiceTmpl,\"%TIMESTAMP%.%TIMESTAMP:::date-subseconds% %syslogtag% %syslogseverity-text%:%msg:::sp-if-no-1st-sp%%msg:::drop-last-lf%\\n\"\n" =
+diff --git a/lenses/tests/test_syslog.aug b/lenses/tests/test_syslog.aug
+index da138ca..8fe24c3 100644
+--- a/lenses/tests/test_syslog.aug
++++ b/lenses/tests/test_syslog.aug
+@@ -13,6 +13,8 @@ daemon.<=info					/var/log/foo
+ daemon.!<=info					/var/log/foo
+ *.*						@syslog.far.away
+ *.*						@syslog.far.away:123
++*.*						@@syslog.far.away
++*.*						@@syslog.far.away:123
+ *.*						foo,bar
+ *.*						|\"/usr/bin/soft arg\"
+ !startslip
+@@ -95,6 +97,14 @@ daemon.info                                     /var/log/cvsupd.log
+ 	  }
+ 	  { "entry"
+ 	    { "selector" { "facility" = "*" } { "level" = "*" } }
++	    { "action" { "protocol" = "@@" } { "hostname" = "syslog.far.away" } }
++	  }
++	  { "entry"
++	    { "selector" { "facility" = "*" } { "level" = "*" } }
++	    { "action" { "protocol" = "@@" } { "hostname" = "syslog.far.away" } { "port" = "123" } }
++	  }
++	  { "entry"
++	    { "selector" { "facility" = "*" } { "level" = "*" } }
+ 	    { "action" { "user" = "foo" } { "user" = "bar" } }
+ 	  }
+ 	  { "entry"
+@@ -246,6 +256,13 @@ daemon.info                                     /var/log/cvsupd.log
+ 	  set "/entry/action/hostname" "far.far.away"
+ 	  = "*.* @far.far.away\n"
+ 
++	(* changing file to remote host *)
++	test Syslog.lns put "*.* /var/lib\n" after
++	  rm "/entry/action/file" ;
++	  set "/entry/action/protocol"  "@@" ;
++	  set "/entry/action/hostname" "far.far.away"
++	  = "*.* @@far.far.away\n"
++
+ 	(* changing file to * *)
+ 	test Syslog.lns put "*.* /var\n" after
+ 	  rm "/entry/action/file" ;

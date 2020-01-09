@@ -1,0 +1,44 @@
+From e9eb3acdd4e9f8389abcb2f44768961337ad34bb Mon Sep 17 00:00:00 2001
+From: Dominic Cleal <dcleal@redhat.com>
+Date: Mon, 21 Jul 2014 08:15:06 +0100
+Subject: [PATCH] Services: permit colons in service name
+
+Fixes RHBZ#1121263
+
+(cherry picked from commit a32a5a395bc63094ba59857fd5dc329c28ddee32)
+
+Conflicts:
+	NEWS
+	lenses/tests/test_services.aug
+---
+ lenses/services.aug            | 2 +-
+ lenses/tests/test_services.aug | 6 ++++++
+ 2 files changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/lenses/services.aug b/lenses/services.aug
+index 597c150..040e252 100644
+--- a/lenses/services.aug
++++ b/lenses/services.aug
+@@ -47,7 +47,7 @@ let comment     = Util.comment
+ let comment_or_eol = Util.comment_or_eol
+ let empty       = Util.empty
+ let protocol_re = /[a-zA-Z]+/
+-let word_re     = /[a-zA-Z0-9_.+*\/-]+/
++let word_re     = /[a-zA-Z0-9_.+*\/:-]+/
+ let num_re      = /[0-9]+/
+ 
+ (* Group: Separators *)
+diff --git a/lenses/tests/test_services.aug b/lenses/tests/test_services.aug
+index a765e00..327d861 100644
+--- a/lenses/tests/test_services.aug
++++ b/lenses/tests/test_services.aug
+@@ -72,3 +72,9 @@ z39.50		210/tcp		z3950 wais	# NISO Z39.50 database \n"
+   test Services.lns put "tcpmux          1/tcp # some comment\n"
+     after rm "/service-name/#comment" = "tcpmux          1/tcp\n"
+ 
++  (* Colons permitted in service names, RHBZ#1121263 *)
++  test Services.lns get "SWRPC.ACCESS.BSS:BS_rmq  48102/tcp  # SWIFTAlliance_SWRPC ACCESS\n" =
++    { "service-name" = "SWRPC.ACCESS.BSS:BS_rmq"
++      { "port" = "48102" }
++      { "protocol" = "tcp" }
++      { "#comment" = "SWIFTAlliance_SWRPC ACCESS" } }
