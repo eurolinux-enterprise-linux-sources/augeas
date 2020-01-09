@@ -1,0 +1,250 @@
+From 02862b1b892d39ba8cafef03a845d8b0a34fb617 Mon Sep 17 00:00:00 2001
+From: Dominic Cleal <dcleal@redhat.com>
+Date: Tue, 9 Sep 2014 09:12:28 +0100
+Subject: [PATCH] Kdump: parse new options, permit EOL comments, refactor
+
+Fixes RHBZ#1139298
+
+(cherry picked from commit a8d43f617a8238107b71c498136800cb561b6246)
+
+Conflicts:
+	NEWS
+
+Test_Kdump: fix test of complete config file
+
+(cherry picked from commit 0951590aa50c37f0ea89f71e9509a7ccff587cd2)
+---
+ doc/naturaldocs/conf/lenses/Menu.txt |  1 +
+ lenses/kdump.aug                     | 64 +++++++++++++----------
+ lenses/tests/test_kdump.aug          | 99 ++++++++++++++++++++++++++++--------
+ 3 files changed, 116 insertions(+), 48 deletions(-)
+
+diff --git a/doc/naturaldocs/conf/lenses/Menu.txt b/doc/naturaldocs/conf/lenses/Menu.txt
+index 59d8104..f5d59d2 100644
+--- a/doc/naturaldocs/conf/lenses/Menu.txt
++++ b/doc/naturaldocs/conf/lenses/Menu.txt
+@@ -187,6 +187,7 @@ Group: Tests and Examples  {
+    File: Test_JettyRealm  (tests/test_jettyrealm.aug)
+    File: Test_JMXAccess  (tests/test_jmxaccess.aug)
+    File: Test_JMXPassword  (tests/test_jmxpassword.aug)
++   File: Test_Kdump  (tests/test_kdump.aug)
+    File: Test_Keepalived  (tests/test_keepalived.aug)
+    File: Test_login_defs  (tests/test_login_defs.aug)
+    File: Test_NetworkManager  (tests/test_networkmanager.aug)
+diff --git a/lenses/kdump.aug b/lenses/kdump.aug
+index b8f4055..ddf50ed 100644
+--- a/lenses/kdump.aug
++++ b/lenses/kdump.aug
+@@ -17,16 +17,36 @@ About: Configuration files
+ module Kdump =
+   autoload xfm
+ 
++(************************************************************************
++ * Group:                 USEFUL PRIMITIVES
++ *************************************************************************)
++
+ let empty = Util.empty
+ let comment = Util.comment
+-let value_to_eol = store Rx.space_in
++let value_to_eol = store /[^ \t\n#][^\n#]*[^ \t\n#]|[^ \t\n#]/
++let int_to_eol = store Rx.integer
+ let delimiter = Util.del_ws_spc
+ let eol = Util.eol
+-let value_to_spc = store Rx.no_spaces
++let value_to_spc = store Rx.neg1
+ let key_to_space = key /[A-Za-z0-9_.\$-]+/
+-let eq = Util.del_str "="
++let eq = Sep.equal
++
++(************************************************************************
++ * Group:                 ENTRY TYPES
++ *************************************************************************)
++
++let list (kw:string) = counter kw
++                     . Build.key_value_line_comment kw delimiter
++                         (Build.opt_list [ seq kw . value_to_spc ] delimiter)
++                         comment
++
++let mdl_key_value = [ delimiter . key_to_space . ( eq . value_to_spc)? ]
++let mdl_options = [ key_to_space . mdl_key_value+ ]
++let mod_options = [ key "options" . delimiter . mdl_options . (comment|eol) ]
+ 
+-let simple_entry (kw:string) = [ key kw . delimiter . value_to_eol . eol ]
++(************************************************************************
++ * Group:                 ENTRIES
++ *************************************************************************)
+ 
+ (* Got from mount(8) *)
+ let fs_types = "adfs" | "affs" | "autofs" | "cifs" | "coda" | "coherent"
+@@ -37,32 +57,20 @@ let fs_types = "adfs" | "affs" | "autofs" | "cifs" | "coda" | "coherent"
+              | "smbfs" | "sysv" | "tmpfs" | "ubifs" | "udf" | "ufs" | "umsdos"
+              | "usbfs" | "vfat" | "xenix" | "xfs" | "xiafs"
+ 
+-let fs = [ key fs_types . delimiter . value_to_eol . eol ]
+-
+-let bin = [ seq "bin" . delimiter . value_to_spc ]
+-let extra_bins = [ key "extra_bins" . (bin)+ . eol ]
+-
+-let mdl = [ seq "module" . delimiter . value_to_spc ]
+-let extra_modules = [ key "extra_modules" . (mdl)+ . eol ]
++let simple_kws = "raw" | "net" | "path" | "core_collector" | "kdump_post"
++               | "kdump_pre" | "default" | "ssh" | "sshkey" | "dracut_args"
++               | "fence_kdump_args"
+ 
++let int_kws = "force_rebuild" | "override_resettable" | "debug_mem_level"
++            | "link_delay" | "disk_timeout"
+ 
+-let mdl_key_value = [ delimiter . key_to_space . ( eq . value_to_spc)? ]
+-let mdl_options = [ key_to_space . mdl_key_value+ ]
+-let mod_options = [ key "options" . delimiter . mdl_options . eol ]
+-
+-
+-let option = simple_entry "raw"
+-           | simple_entry "net"
+-           | simple_entry "path"
+-           | simple_entry "disk_timeout"
+-           | simple_entry "core_collector"
+-           | simple_entry "link_delay"
+-           | simple_entry "kdump_post"
+-           | simple_entry "kdump_pre"
+-           | simple_entry "default"
+-           | fs
+-           | extra_bins
+-           | extra_modules
++let option = Build.key_value_line_comment ( simple_kws | fs_types )
++                                          delimiter value_to_eol comment
++           | Build.key_value_line_comment int_kws delimiter int_to_eol comment
++           | list "extra_bins"
++           | list "extra_modules"
++           | list "blacklist"
++           | list "fence_kdump_nodes"
+            | mod_options
+ 
+ (* View: lns
+diff --git a/lenses/tests/test_kdump.aug b/lenses/tests/test_kdump.aug
+index 7057782..51c79a3 100644
+--- a/lenses/tests/test_kdump.aug
++++ b/lenses/tests/test_kdump.aug
+@@ -1,6 +1,9 @@
+-(* Test for kdump lens *)
++(*
++Module: Test_Kdump
++  Provides unit tests and examples for the <Kdump> lens.
++*)
+ 
+-module Test_kdump =
++module Test_Kdump =
+ 
+    let conf = "# this is a comment
+ #another commented line
+@@ -8,36 +11,92 @@ module Test_kdump =
+ #comment after empty line
+ #
+ #comment after empty comment
+-path /var/crash
++path /var/crash  #comment after entry
+ core_collector makedumpfile -c
+ default poweroff
+ raw /dev/sda5
+ ext3 /dev/sda3
+ net my.server.com:/export/tmp
++nfs my.server.com:/export/tmp
+ net user@my.server.com
++ssh user@my.server.com
+ link_delay 60
++kdump_pre /var/crash/scripts/kdump-pre.sh
+ kdump_post /var/crash/scripts/kdump-post.sh
+ #extra_bins /usr/bin/lftp /a/b/c
+-extra_bins /usr/bin/lftp  	   /a/b/c
++extra_bins /usr/bin/lftp  	   /a/b/c  # comment
+ disk_timeout 30
+ extra_modules gfs2 extra modules more
+ options babla 	 labl 	 kbak 	 	 df=dfg
+ options babla 	 labl 	 kbak 	 	 df=dfg
+-options babla 	 labl 	 kbak 	 	 df=dfg
+-"
+-
+-   let conf2 = "#comment
+-kdump_post /var/crash/scripts/kdump-post.sh
+-extra_modules gfs2 extra modules more
++options babla 	 labl 	 kbak 	 	 df=dfg  # comment
++sshkey /root/.ssh/kdump_id_rsa
++force_rebuild 1
++override_resettable 1
++dracut_args --omit-drivers \"cfg80211 snd\" --add-drivers \"ext2 ext3\"
++fence_kdump_args -p 7410 -f auto
++fence_kdump_nodes 192.168.1.10 10.34.63.155
++debug_mem_level 3
++blacklist gfs2
+ "
+ 
+-(*   test Kdump.lns get conf = ?*)
+-   test Kdump.lns get conf2 =
+-  { "#comment" = "comment" }
+-  { "kdump_post" = "/var/crash/scripts/kdump-post.sh" }
+-  { "extra_modules"
+-    { "1" = "gfs2" }
+-    { "2" = "extra" }
+-    { "3" = "modules" }
+-    { "4" = "more" }
+-  }
++  (* Test: Kdump.lns
++     Check whole config file *)
++  test Kdump.lns get conf =
++    { "#comment" = "this is a comment" }
++    { "#comment" = "another commented line" }
++    {  }
++    { "#comment" = "comment after empty line" }
++    {  }
++    { "#comment" = "comment after empty comment" }
++    { "path" = "/var/crash"
++      { "#comment" = "comment after entry" } }
++    { "core_collector" = "makedumpfile -c" }
++    { "default" = "poweroff" }
++    { "raw" = "/dev/sda5" }
++    { "ext3" = "/dev/sda3" }
++    { "net" = "my.server.com:/export/tmp" }
++    { "nfs" = "my.server.com:/export/tmp" }
++    { "net" = "user@my.server.com" }
++    { "ssh" = "user@my.server.com" }
++    { "link_delay" = "60" }
++    { "kdump_pre" = "/var/crash/scripts/kdump-pre.sh" }
++    { "kdump_post" = "/var/crash/scripts/kdump-post.sh" }
++    { "#comment" = "extra_bins /usr/bin/lftp /a/b/c" }
++    { "extra_bins"
++      { "1" = "/usr/bin/lftp" }
++      { "2" = "/a/b/c" }
++      { "#comment" = "comment" } }
++    { "disk_timeout" = "30" }
++    { "extra_modules"
++      { "1" = "gfs2" }
++      { "2" = "extra" }
++      { "3" = "modules" }
++      { "4" = "more" } }
++    { "options"
++      { "babla"
++        { "labl" }
++        { "kbak" }
++        { "df" = "dfg" } } }
++    { "options"
++      { "babla"
++        { "labl" }
++        { "kbak" }
++        { "df" = "dfg" } } }
++    { "options"
++      { "babla"
++        { "labl" }
++        { "kbak" }
++        { "df" = "dfg" } }
++      { "#comment" = "comment" } }
++    { "sshkey" = "/root/.ssh/kdump_id_rsa" }
++    { "force_rebuild" = "1" }
++    { "override_resettable" = "1" }
++    { "dracut_args" = "--omit-drivers \"cfg80211 snd\" --add-drivers \"ext2 ext3\"" }
++    { "fence_kdump_args" = "-p 7410 -f auto" }
++    { "fence_kdump_nodes"
++      { "1" = "192.168.1.10" }
++      { "2" = "10.34.63.155" } }
++    { "debug_mem_level" = "3" }
++    { "blacklist"
++      { "1" = "gfs2" } }

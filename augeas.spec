@@ -1,6 +1,6 @@
 Name:           augeas
 Version:        1.0.0
-Release:        7%{?dist}
+Release:        7%{?dist}.1
 Summary:        A library for changing configuration files
 
 Group:          System Environment/Libraries
@@ -30,6 +30,7 @@ Patch20:        0020-src-augrun.c-remove-unused-filename-argument-from-du.patch
 Patch21:        0021-src-augtool.c-add-command-aliases-to-autocomplete.patch
 Patch22:        0022-Nrpe-accept-any-config-option-remove-predefined-list.patch
 Patch23:        0023-man-augtool.pod-fix-description-of-move-alias.patch
+Patch24:        0024-Kdump-parse-new-options-permit-EOL-comments-refactor.patch
 
 BuildRoot:      %{_tmppath}/%{name}-%{version}-%{release}-root-%(%{__id_u} -n)
 
@@ -90,6 +91,7 @@ The libraries for %{name}.
 %patch21 -p1
 %patch22 -p1
 %patch23 -p1
+%patch24 -p1
 
 %build
 %configure --disable-static
@@ -151,6 +153,9 @@ rm -rf $RPM_BUILD_ROOT
 %{_libdir}/pkgconfig/augeas.pc
 
 %changelog
+* Tue Jan 13 2015 Dominic Cleal <dcleal@redhat.com> - 1.0.0-7.1
+- Kdump: parse new options, EOL comments (RHBZ#1181278)
+
 * Fri Jun 13 2014 Dominic Cleal <dcleal@redhat.com> - 1.0.0-7
 * docs: fix description of 'move' alias (RHBZ#1100186)
 
